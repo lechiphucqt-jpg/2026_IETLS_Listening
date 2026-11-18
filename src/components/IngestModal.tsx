@@ -63,6 +63,12 @@ export const IngestModal: React.FC<IngestModalProps> = ({
       );
       return;
     }
+    // Save valid API Key to localStorage for instant reuse
+    try {
+      localStorage.setItem('GEMINI_API_KEY', apiKey);
+    } catch {
+      // ignore
+    }
 
     const totalBytes = (audioFile?.size || 0) + (pdfFile?.size || 0);
     if (totalBytes > 30 * 1024 * 1024) {
@@ -77,11 +83,6 @@ export const IngestModal: React.FC<IngestModalProps> = ({
     setProgressPercent(10);
 
     try {
-      const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
-      if (!apiKey) {
-        throw new Error('Chưa có Gemini API Key. Vui lòng bấm vào nút "Cài đặt / Thay đổi Gemini API Key" để nhập mã key của bạn.');
-      }
-
       let finalPack: ListeningTestPack | undefined;
       const isLocalhost =
         typeof window !== 'undefined' &&

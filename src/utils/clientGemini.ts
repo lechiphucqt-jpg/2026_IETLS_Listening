@@ -41,6 +41,14 @@ export function cleanJsonFences(text: string): string {
   if (cleaned.endsWith('```')) {
     cleaned = cleaned.slice(0, -3);
   }
+  cleaned = cleaned.trim();
+
+  // Extract clean JSON block if model returns conversational wrappers
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  }
   return cleaned.trim();
 }
 
@@ -57,13 +65,132 @@ interface GeminiTextPart {
 
 type GeminiContentPart = GeminiInlineData | GeminiTextPart;
 
-const CANDIDATE_MODELS = [
-  'gemini-1.5-flash',
-  'gemini-1.5-flash-latest',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-exp',
-  'gemini-1.5-pro',
+export interface SupportedModelTarget {
+  version: 'v1' | 'v1beta';
+  modelName: string;
+}
+
+let workingTargetCache: SupportedModelTarget | null = null;
+let lastApiKeyCache = '';
+
+function scoreModelName(name: string): number {
+  const lower = name.toLowerCase();
+  if (lower.includes('2.0-flash') && !lower.includes('lite')) return 110;
+  if (lower.includes('2.0-flash-exp')) return 105;
+  if (lower === 'gemini-1.5-flash' || lower === 'models/gemini-1.5-flash') return 100;
+  if (lower.includes('1.5-flash-002') || lower.includes('1.5-flash-001')) return 98;
+  if (lower.includes('1.5-flash-latest')) return 95;
+  if (lower.includes('1.5-flash')) return 90;
+  if (lower.includes('1.5-flash-8b')) return 85;
+  if (lower.includes('2.0-pro')) return 80;
+  if (lower === 'gemini-1.5-pro' || lower === 'models/gemini-1.5-pro') return 75;
+  if (lower.includes('1.5-pro-002') || lower.includes('1.5-pro-001')) return 74;
+  if (lower.includes('1.5-pro-latest') || lower.includes('1.5-pro')) return 70;
+  if (lower.includes('flash')) return 65;
+  if (lower.includes('pro')) return 60;
+  return 40;
+}
+
+const STATIC_CANDIDATES: SupportedModelTarget[] = [
+  // v1 (stable production endpoint)
+  { version: 'v1', modelName: 'gemini-1.5-flash' },
+  { version: 'v1', modelName: 'gemini-1.5-flash-latest' },
+  { version: 'v1', modelName: 'gemini-1.5-flash-001' },
+  { version: 'v1', modelName: 'gemini-1.5-flash-002' },
+  { version: 'v1', modelName: 'gemini-1.5-pro' },
+  { version: 'v1', modelName: 'gemini-1.5-pro-latest' },
+  // v1beta (experimental & newest models)
+  { version: 'v1beta', modelName: 'gemini-2.0-flash' },
+  { version: 'v1beta', modelName: 'gemini-1.5-flash' },
+  { version: 'v1beta', modelName: 'gemini-1.5-flash-latest' },
+  { version: 'v1beta', modelName: 'gemini-2.0-flash-exp' },
+  { version: 'v1beta', modelName: 'gemini-1.5-flash-002' },
+  { version: 'v1beta', modelName: 'gemini-1.5-flash-8b' },
+  { version: 'v1beta', modelName: 'gemini-1.5-pro' },
+  { version: 'v1beta', modelName: 'gemini-1.5-pro-latest' },
+  { version: 'v1', modelName: 'gemini-pro' },
 ];
+
+export async function discoverSupportedModels(apiKey: string): Promise<SupportedModelTarget[]> {
+  const cleanKey = apiKey.trim();
+  const versions: ('v1' | 'v1beta')[] = ['v1', 'v1beta'];
+  const targets: SupportedModelTarget[] = [];
+  const seen = new Set<string>();
+
+  for (const ver of versions) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/${ver}/models?key=${encodeURIComponent(cleanKey)}`
+      );
+      if (res.ok) {
+        const data = (await res.json()) as {
+          models?: {
+            name?: string;
+            supportedGenerationMethods?: string[];
+          }[];
+        };
+
+        if (Array.isArray(data.models)) {
+          for (const m of data.models) {
+            const rawName = m.name || '';
+            const cleanName = rawName.replace(/^models\//, '');
+            const methods = m.supportedGenerationMethods || [];
+            if (cleanName && methods.includes('generateContent')) {
+              const key = `${ver}:${cleanName}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                targets.push({ version: ver, modelName: cleanName });
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[ModelDiscovery] Không thể listModels trên ${ver}:`, err);
+    }
+  }
+
+  targets.sort((a, b) => scoreModelName(b.modelName) - scoreModelName(a.modelName));
+  return targets;
+}
+
+async function getCandidateTargets(apiKey: string): Promise<SupportedModelTarget[]> {
+  const cleanKey = apiKey.trim();
+  const candidates: SupportedModelTarget[] = [];
+  const seen = new Set<string>();
+
+  // Prioritize cached working target
+  if (workingTargetCache && lastApiKeyCache === cleanKey) {
+    const key = `${workingTargetCache.version}:${workingTargetCache.modelName}`;
+    seen.add(key);
+    candidates.push(workingTargetCache);
+  }
+
+  // Dynamic discovery from Google AI Studio
+  try {
+    const discovered = await discoverSupportedModels(cleanKey);
+    for (const t of discovered) {
+      const key = `${t.version}:${t.modelName}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        candidates.push(t);
+      }
+    }
+  } catch (err) {
+    console.warn('[ModelDiscovery] Dynamic discovery failed, using static list:', err);
+  }
+
+  // Fallback static list
+  for (const t of STATIC_CANDIDATES) {
+    const key = `${t.version}:${t.modelName}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      candidates.push(t);
+    }
+  }
+
+  return candidates;
+}
 
 export async function callGeminiDirect(
   apiKey: string,
@@ -76,116 +203,169 @@ export async function callGeminiDirect(
 ): Promise<string> {
   const cleanKey = apiKey.trim();
   if (!cleanKey) {
-    throw new Error('Chưa có khóa Gemini API Key. Vui lòng bấm vào nút "API Key" để cài đặt.');
+    throw new Error('Chưa có khóa Gemini API Key. Vui lòng dán khóa API vào ô màu vàng trước khi xử lý.');
   }
 
+  const candidates = await getCandidateTargets(cleanKey);
   let lastError: Error | null = null;
 
-  for (const model of CANDIDATE_MODELS) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+  for (const target of candidates) {
+    const { version, modelName } = target;
+    const url = `https://generativelanguage.googleapis.com/${version}/models/${encodeURIComponent(modelName)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
-      const bodyPayload: Record<string, unknown> = {
-        contents: [
-          {
-            role: 'user',
-            parts,
-          },
-        ],
-        generationConfig: {
-          temperature: options?.temperature ?? 0.2,
-          ...(options?.responseMimeType ? { responseMimeType: options.responseMimeType } : {}),
-        },
-      };
+    // Fallback configurations in case responseMimeType or systemInstruction are not supported on this model
+    const configsToTry = [
+      { useResponseMimeType: !!options?.responseMimeType, useSystemInstruction: !!options?.systemInstruction },
+      { useResponseMimeType: false, useSystemInstruction: !!options?.systemInstruction },
+      { useResponseMimeType: false, useSystemInstruction: false },
+    ];
 
-      if (options?.systemInstruction) {
-        bodyPayload.systemInstruction = {
-          parts: [{ text: options.systemInstruction }],
-        };
-      }
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(bodyPayload),
-      });
-
-      const resText = await res.text();
-      let resJson: {
-        candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
-        error?: { message?: string; status?: string; code?: number };
-      };
-
+    for (const config of configsToTry) {
       try {
-        resJson = JSON.parse(resText);
-      } catch {
-        throw new Error(`Google AI trả về phản hồi không hợp lệ (HTTP ${res.status}): ${resText.slice(0, 150)}`);
-      }
+        let requestParts = parts;
+        if (!config.useSystemInstruction && options?.systemInstruction) {
+          requestParts = [{ text: `[INSTRUCTIONS]: ${options.systemInstruction}\n\n` }, ...parts];
+        }
 
-      if (!res.ok || resJson.error) {
-        const rawErrMsg = resJson.error?.message || `Lỗi HTTP ${res.status}: ${resText.slice(0, 150)}`;
-        lastError = new Error(`[${model}] ${rawErrMsg}`);
+        const bodyPayload: Record<string, unknown> = {
+          contents: [
+            {
+              role: 'user',
+              parts: requestParts,
+            },
+          ],
+          generationConfig: {
+            temperature: options?.temperature ?? 0.2,
+            ...(config.useResponseMimeType && options?.responseMimeType
+              ? { responseMimeType: options.responseMimeType }
+              : {}),
+          },
+        };
 
+        if (config.useSystemInstruction && options?.systemInstruction) {
+          bodyPayload.systemInstruction = {
+            parts: [{ text: options.systemInstruction }],
+          };
+        }
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(bodyPayload),
+        });
+
+        const resText = await res.text();
+        let resJson: {
+          candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+          error?: { message?: string; status?: string; code?: number };
+        };
+
+        try {
+          resJson = JSON.parse(resText);
+        } catch {
+          throw new Error(`Google AI trả về phản hồi không hợp lệ (HTTP ${res.status}): ${resText.slice(0, 150)}`);
+        }
+
+        if (!res.ok || resJson.error) {
+          const rawErrMsg = resJson.error?.message || `Lỗi HTTP ${res.status}: ${resText.slice(0, 150)}`;
+          lastError = new Error(`[${modelName}] ${rawErrMsg}`);
+
+          // Location / VPN error
+          if (
+            rawErrMsg.includes('User location is not supported') ||
+            rawErrMsg.includes('location is not supported')
+          ) {
+            throw new Error(
+              'Khu vực mạng hiện tại chưa được Google Gemini hỗ trợ trực tiếp. Vui lòng bật VPN (sang Singapore, Nhật Bản hoặc Mỹ) rồi thử lại.'
+            );
+          }
+
+          // API Key invalid or disabled
+          if (
+            res.status === 400 &&
+            (rawErrMsg.includes('API_KEY_INVALID') ||
+              rawErrMsg.includes('API key not valid') ||
+              rawErrMsg.includes('API_KEY_SERVICE_BLOCKED'))
+          ) {
+            throw new Error(
+              'Khóa Gemini API Key không hợp lệ hoặc đã bị khóa. Vui lòng tạo khóa mới miễn phí tại aistudio.google.com/api-keys rồi dán vào ô màu vàng.'
+            );
+          }
+
+          // Generative Language API not enabled
+          if (
+            rawErrMsg.includes('has not been used in project') ||
+            rawErrMsg.includes('SERVICE_DISABLED')
+          ) {
+            throw new Error(
+              'Khóa API này chưa được kích hoạt Generative Language API. Vui lòng tạo khóa mới trực tiếp từ aistudio.google.com/api-keys.'
+            );
+          }
+
+          // Rate limit
+          if (res.status === 429 || rawErrMsg.includes('RESOURCE_EXHAUSTED')) {
+            throw new Error(
+              'Hạn mức API miễn phí (Free Tier) tạm thời hết lượt gọi. Vui lòng đợi 30 giây hoặc đổi sang khóa Gemini API khác.'
+            );
+          }
+
+          // If responseMimeType or systemInstruction caused 400, downgrade to next config
+          if (
+            res.status === 400 &&
+            (rawErrMsg.includes('responseMimeType') || rawErrMsg.includes('systemInstruction'))
+          ) {
+            continue;
+          }
+
+          // Model not found or not supported on this version -> try next model candidate
+          if (
+            res.status === 404 ||
+            rawErrMsg.includes('not found') ||
+            rawErrMsg.includes('NOT_FOUND') ||
+            rawErrMsg.includes('not supported for generateContent')
+          ) {
+            console.warn(`Model ${modelName} (${version}) không khả dụng (${rawErrMsg}), đang thử model tiếp theo...`);
+            break;
+          }
+
+          throw new Error(`Google Gemini báo lỗi (${modelName}): ${rawErrMsg}`);
+        }
+
+        const replyText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!replyText) {
+          throw new Error(`Không nhận được nội dung từ Gemini AI (${modelName}).`);
+        }
+
+        // Cache working target for future fast repeat calls
+        workingTargetCache = target;
+        lastApiKeyCache = cleanKey;
+        return replyText;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        // Critical errors propagate immediately
         if (
-          rawErrMsg.includes('User location is not supported') ||
-          rawErrMsg.includes('location is not supported')
+          lastError.message.includes('API_KEY_INVALID') ||
+          lastError.message.includes('API key') ||
+          lastError.message.includes('Free Tier') ||
+          lastError.message.includes('VPN') ||
+          lastError.message.includes('location is not supported') ||
+          lastError.message.includes('has not been used in project') ||
+          lastError.message.includes('SERVICE_DISABLED')
         ) {
-          throw new Error(
-            'Khu vực mạng hiện tại chưa được Google Gemini hỗ trợ trực tiếp. Vui lòng bật VPN (sang Singapore, Nhật Bản hoặc Mỹ) rồi thử lại.'
-          );
+          throw lastError;
         }
-
-        if (
-          res.status === 400 &&
-          (rawErrMsg.includes('API_KEY_INVALID') ||
-            rawErrMsg.includes('API key not valid') ||
-            rawErrMsg.includes('API_KEY_SERVICE_BLOCKED'))
-        ) {
-          throw new Error(
-            'Khóa Gemini API Key không hợp lệ hoặc đã bị khóa. Vui lòng tạo khóa mới miễn phí tại aistudio.google.com/api-keys rồi dán vào ô màu vàng.'
-          );
-        }
-
-        if (res.status === 429 || rawErrMsg.includes('RESOURCE_EXHAUSTED')) {
-          throw new Error(
-            'Hạn mức API miễn phí (Free Tier) tạm thời hết lượt gọi. Vui lòng đợi 30 giây hoặc đổi sang khóa Gemini API khác.'
-          );
-        }
-
-        if (res.status === 404 || rawErrMsg.includes('not found') || rawErrMsg.includes('NOT_FOUND')) {
-          console.warn(`Model ${model} không khả dụng (${rawErrMsg}), đang thử model dự phòng...`);
-          continue;
-        }
-
-        throw new Error(`Google Gemini báo lỗi (${model}): ${rawErrMsg}`);
-      }
-
-      const replyText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!replyText) {
-        throw new Error(`Không nhận được nội dung từ Gemini AI (${model}).`);
-      }
-
-      return replyText;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      // If it's a critical quota, auth or location error, propagate immediately
-      if (
-        lastError.message.includes('API_KEY_INVALID') ||
-        lastError.message.includes('API key') ||
-        lastError.message.includes('Free Tier') ||
-        lastError.message.includes('VPN') ||
-        lastError.message.includes('location is not supported')
-      ) {
-        throw lastError;
+        break;
       }
     }
   }
 
   throw (
     lastError ||
-    new Error('Không thể kết nối đến Google Gemini AI. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.')
+    new Error(
+      'Không thể kết nối đến Google Gemini AI. Vui lòng kiểm tra lại khóa API hoặc tạo mới miễn phí tại https://aistudio.google.com/api-keys.'
+    )
   );
 }
 
