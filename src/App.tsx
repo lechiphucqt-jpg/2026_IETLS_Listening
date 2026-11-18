@@ -1315,7 +1315,7 @@ export default function App() {
   }, [activeTest]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#eaf4ff] via-[#f0f7ff] to-[#e8f2fe] text-slate-900 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F4F7FB] text-slate-900 flex flex-col font-sans selection:bg-blue-900 selection:text-white">
       {/* Hidden native audio element for real WAV/MP3 playback */}
       {activeTest.audioUrl && (
         <audio ref={audioRef} src={activeTest.audioUrl} preload="auto" />

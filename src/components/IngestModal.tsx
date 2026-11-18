@@ -329,9 +329,9 @@ export const IngestModal: React.FC<IngestModalProps> = ({
       className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
     >
       <div className="bg-white border border-slate-200 rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
+        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-4">
           <div>
-            <h2 id="ingest-modal-title" className="text-base font-bold text-slate-900">
+            <h2 id="ingest-modal-title" className="text-base font-bold text-[#0F2744]">
               Nạp đề thi & Audio (Tech-Sync AI)
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -508,12 +508,12 @@ export const IngestModal: React.FC<IngestModalProps> = ({
           </div>
 
           {/* Dán link Audio từ Google Drive */}
-          <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1.5">
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
             <label
               htmlFor="ingest-gdrive-link"
-              className="text-xs font-semibold text-blue-900 flex items-center gap-1.5"
+              className="text-xs font-semibold text-slate-800 flex items-center gap-1.5"
             >
-              <Cloud className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <Cloud className="w-3.5 h-3.5 text-[#0F2744] shrink-0" />
               Hoặc dán đường link tệp Audio từ Google Drive
             </label>
             <input
@@ -522,9 +522,9 @@ export const IngestModal: React.FC<IngestModalProps> = ({
               placeholder="https://drive.google.com/file/d/.../view?usp=sharing"
               value={gdriveAudioUrl}
               onChange={(e) => setGdriveAudioUrl(e.target.value)}
-              className="w-full px-3 py-1.5 text-xs bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F2744]"
             />
-            <p className="text-[11px] text-blue-700/80">
+            <p className="text-[11px] text-slate-500">
               Hỗ trợ link Google Drive chia sẻ công khai ("Bất kỳ ai có đường liên kết"). Hệ thống tự động chuyển sang link phát trực tiếp.
             </p>
           </div>
@@ -542,19 +542,19 @@ export const IngestModal: React.FC<IngestModalProps> = ({
               value={rawText}
               onChange={(e) => setRawText(e.target.value)}
               placeholder="Dán đoạn transcript hội thoại, bài giảng hoặc danh sách câu hỏi IELTS tại đây để AI tự động thiết kế câu hỏi, bẫy Distractor và từ vựng AWL..."
-              className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F2744]"
             />
           </div>
 
           {isSubmitting && (
-            <div className="p-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg text-xs space-y-2">
+            <div className="p-3 bg-slate-50 border border-slate-200 text-slate-800 rounded-lg text-xs space-y-2">
               <div className="flex items-center justify-between gap-2 font-medium">
                 <span>{progressLabel}</span>
                 <span className="tabular-nums">{progressPercent}%</span>
               </div>
-              <div className="h-1.5 w-full bg-blue-100 rounded-full overflow-hidden">
+              <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-blue-700 transition-all duration-300"
+                  className="h-full bg-[#0F2744] transition-all duration-300"
                   style={{ width: `${Math.min(100, Math.max(8, progressPercent))}%` }}
                 />
               </div>
@@ -594,19 +594,19 @@ export const IngestModal: React.FC<IngestModalProps> = ({
           )}
 
           {/* Feature: Tự động lưu toàn bộ file Audio & PDF vào máy tính */}
-          <div className="p-3.5 bg-blue-50/80 border-2 border-blue-200 rounded-xl flex items-center justify-between gap-3 shadow-xs">
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-3 shadow-xs">
             <label className="flex items-center gap-3 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={autoSaveToComputer}
                 onChange={(e) => setAutoSaveToComputer(e.target.checked)}
-                className="w-4 h-4 text-blue-700 rounded border-blue-300 focus:ring-blue-600 cursor-pointer"
+                className="w-4 h-4 text-[#0F2744] rounded border-slate-300 focus:ring-[#0F2744] cursor-pointer"
               />
               <div>
-                <span className="text-xs font-extrabold text-blue-950 block">
+                <span className="text-xs font-bold text-[#0F2744] block">
                   Tự động lưu toàn bộ file Audio & PDF vào máy tính (Local Computer)
                 </span>
-                <span className="text-[11px] font-semibold text-blue-800/80 block">
+                <span className="text-[11px] font-medium text-slate-500 block">
                   Lưu file gốc vào máy tính để bảo quản vĩnh viễn, không lo mất file khi học offline
                 </span>
               </div>
@@ -625,7 +625,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors cursor-pointer disabled:opacity-60"
+              className="inline-flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-[#0F2744] hover:bg-[#0A1B30] rounded-lg transition-colors cursor-pointer disabled:opacity-60 shadow-xs"
             >
               {isSubmitting ? (
                 <>

@@ -183,19 +183,19 @@ Bạn có thắc mắc gì về lý do chọn đáp án, cách người nói gi�
     >
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl h-[85vh] max-h-[720px] flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="px-5 py-4 bg-gradient-to-r from-blue-900 to-indigo-900 text-white flex items-center justify-between shrink-0">
+        <div className="px-5 py-4 bg-[#0F2744] text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-white/10 rounded-xl">
-              <Bot className="w-5 h-5 text-blue-300" aria-hidden="true" />
+              <Bot className="w-5 h-5 text-blue-200" aria-hidden="true" />
             </div>
             <div>
               <h2 id="ai-coach-title" className="text-base font-bold flex items-center gap-2">
                 Gia sư AI 1-on-1 — Câu {question.number}
-                <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-blue-800 text-blue-200">
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-white/20 text-white">
                   {question.type}
                 </span>
               </h2>
-              <p className="text-xs text-blue-200 line-clamp-1">
+              <p className="text-xs text-slate-300 line-clamp-1">
                 {testTitle} · {partLabel}
               </p>
             </div>
@@ -266,7 +266,7 @@ Bạn có thắc mắc gì về lý do chọn đáp án, cách người nói gi�
                 <div
                   className={`max-w-[85%] rounded-2xl p-4 text-sm leading-relaxed ${
                     isUser
-                      ? 'bg-blue-700 text-white rounded-br-xs font-medium'
+                      ? 'bg-[#0F2744] text-white rounded-br-xs font-medium shadow-xs'
                       : 'bg-slate-50 text-slate-900 border border-slate-200 rounded-bl-xs'
                   }`}
                 >
@@ -341,7 +341,7 @@ Bạn có thắc mắc gì về lý do chọn đáp án, cách người nói gi�
           <button
             type="submit"
             disabled={!inputText.trim() || isLoading}
-            className="px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-xl text-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0"
+            className="px-4 py-2.5 bg-[#0F2744] hover:bg-[#0A1B30] text-white font-semibold rounded-xl text-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0 shadow-xs"
           >
             {isLoading ? (
               <Loader2 className="w-4 h-4 animate-spin" />

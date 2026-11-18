@@ -52,16 +52,16 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
     >
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 bg-gradient-to-r from-blue-900 to-indigo-900 text-white flex items-center justify-between">
+        <div className="px-6 py-4 bg-[#0F2744] text-white flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-white/10 rounded-xl">
-              <Key className="w-5 h-5 text-blue-300" aria-hidden="true" />
+              <Key className="w-5 h-5 text-blue-200" aria-hidden="true" />
             </div>
             <div>
               <h2 id="api-key-modal-title" className="text-base font-bold">
                 Cài đặt Gemini API Key
               </h2>
-              <p className="text-xs text-blue-200">
+              <p className="text-xs text-slate-300">
                 Để nạp đề, đồng bộ âm thanh và sử dụng Gia sư AI
               </p>
             </div>
@@ -78,18 +78,18 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
 
         <form onSubmit={handleSave} className="p-6 space-y-5">
           {/* Instructions Link */}
-          <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-3 text-xs text-blue-900">
-            <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3 text-xs text-slate-900">
+            <Sparkles className="w-4 h-4 text-[#0F2744] shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <span className="font-semibold block">Bạn chưa có khóa API?</span>
-              <p className="text-blue-700 leading-relaxed">
+              <span className="font-semibold block text-slate-900">Bạn chưa có khóa API?</span>
+              <p className="text-slate-600 leading-relaxed">
                 Google cấp khóa API Gemini hoàn toàn miễn phí. Nhấp vào liên kết bên dưới để lấy key trong 30 giây:
               </p>
               <a
                 href="https://aistudio.google.com/api-keys"
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 font-bold text-blue-800 underline hover:text-blue-950 pt-0.5"
+                className="inline-flex items-center gap-1 font-bold text-[#0F2744] underline hover:text-slate-900 pt-0.5"
               >
                 https://aistudio.google.com/api-keys
                 <ExternalLink className="w-3 h-3" />
@@ -136,7 +136,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                   onClick={() => setSelectedModel(m.id)}
                   className={`p-2.5 text-left border rounded-xl transition-all cursor-pointer ${
                     selectedModel === m.id
-                      ? 'border-blue-600 bg-blue-50 text-blue-900 font-semibold ring-1 ring-blue-600'
+                      ? 'border-[#0F2744] bg-slate-50 text-[#0F2744] font-bold ring-1 ring-[#0F2744]'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -166,7 +166,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
             <button
               type="submit"
               disabled={!apiKey.trim()}
-              className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-[#0F2744] hover:bg-[#0A1B30] rounded-xl transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
             >
               <Check className="w-3.5 h-3.5" />
               Lưu & Áp dụng

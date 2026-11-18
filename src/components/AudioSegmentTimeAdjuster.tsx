@@ -163,7 +163,7 @@ export const AudioSegmentTimeAdjuster: React.FC<AudioSegmentTimeAdjusterProps> =
         <div className="flex flex-wrap items-center gap-2">
           {label && (
             <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-blue-700" aria-hidden="true" />
+              <Clock className="w-3.5 h-3.5 text-[#0F2744]" aria-hidden="true" />
               {label}
             </span>
           )}
@@ -174,7 +174,7 @@ export const AudioSegmentTimeAdjuster: React.FC<AudioSegmentTimeAdjusterProps> =
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-xs transition-colors cursor-pointer whitespace-nowrap shadow-xs ${
               isSegmentCurrentlyPlaying
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white animate-pulse'
-                : 'bg-blue-700 hover:bg-blue-800 text-white'
+                : 'bg-[#0F2744] hover:bg-[#0A1B30] text-white'
             }`}
             title="Nhấn để nghe riêng đoạn này"
           >
@@ -226,7 +226,7 @@ export const AudioSegmentTimeAdjuster: React.FC<AudioSegmentTimeAdjusterProps> =
             </span>
             {typeof currentTime === 'number' && (
               <span className="font-mono text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200 tabular-nums">
-                Đang phát tại: <strong className="text-blue-700">{formatSecondsToTime(currentTime)}</strong>
+                Đang phát tại: <strong className="text-[#0F2744]">{formatSecondsToTime(currentTime)}</strong>
               </span>
             )}
           </div>

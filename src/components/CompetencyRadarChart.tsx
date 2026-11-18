@@ -119,9 +119,9 @@ export const CompetencyRadarChart: React.FC<CompetencyRadarChartProps> = ({
     <div className={`bg-white border border-slate-200 rounded-2xl p-6 ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-200">
         <div>
-          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+          <h3 className="text-base font-bold text-[#0F2744] flex items-center gap-2">
             <span>Biểu đồ Radar Năng lực 5 chiều IELTS Listening</span>
-            <span className="text-xs font-mono font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+            <span className="text-xs font-mono font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-[#0F2744] border border-slate-300">
               D3 Analysis
             </span>
           </h3>
@@ -183,8 +183,8 @@ export const CompetencyRadarChart: React.FC<CompetencyRadarChartProps> = ({
             {/* Candidate Score Filled Polygon */}
             <polygon
               points={polygonPoints}
-              fill="rgba(37, 99, 235, 0.22)"
-              stroke="#2563EB"
+              fill="rgba(15, 39, 68, 0.18)"
+              stroke="#0F2744"
               strokeWidth="2.5"
             />
 
@@ -198,7 +198,7 @@ export const CompetencyRadarChart: React.FC<CompetencyRadarChartProps> = ({
                     cx={coord.x}
                     cy={coord.y}
                     r="4.5"
-                    fill="#1D4ED8"
+                    fill="#0F2744"
                     stroke="#FFFFFF"
                     strokeWidth="2"
                   />
@@ -216,7 +216,7 @@ export const CompetencyRadarChart: React.FC<CompetencyRadarChartProps> = ({
                     y={labelCoord.y + 13}
                     textAnchor="middle"
                     dominantBaseline="central"
-                    className="text-[10px] font-mono font-extrabold fill-blue-700 tabular-nums"
+                    className="text-[10px] font-mono font-extrabold fill-[#0F2744] tabular-nums"
                   >
                     {dim.score}%
                   </text>
@@ -236,7 +236,7 @@ export const CompetencyRadarChart: React.FC<CompetencyRadarChartProps> = ({
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-slate-900">{dim.name}</span>
-                  <span className="font-mono font-bold text-blue-700 tabular-nums">
+                  <span className="font-mono font-bold text-[#0F2744] tabular-nums">
                     {dim.score}%
                   </span>
                 </div>
@@ -252,7 +252,7 @@ export const CompetencyRadarChart: React.FC<CompetencyRadarChartProps> = ({
                     dim.score >= 80
                       ? 'bg-emerald-600'
                       : dim.score >= 60
-                        ? 'bg-blue-600'
+                        ? 'bg-[#0F2744]'
                         : 'bg-amber-500'
                   }`}
                   style={{ width: `${dim.score}%` }}

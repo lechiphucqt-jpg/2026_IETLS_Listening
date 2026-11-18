@@ -196,21 +196,21 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
     >
-      <div className="bg-white border-2 border-blue-200 rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-blue-100 bg-gradient-to-r from-blue-50/90 via-sky-50/70 to-indigo-50/80 flex items-center justify-between gap-4">
+        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md">
+            <div className="w-10 h-10 rounded-xl bg-[#0F2744] text-white flex items-center justify-center shadow-xs">
               <HardDrive className="w-5 h-5" aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+              <h2 className="text-base font-bold text-[#0F2744] tracking-tight flex items-center gap-2">
                 <span>Quản Lý Tệp Cục Bộ Trên Máy Tính</span>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-300">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-[#0F2744] border border-slate-300">
                   Local Computer
                 </span>
               </h2>
-              <p className="text-xs font-semibold text-slate-600 mt-0.5">
+              <p className="text-xs font-medium text-slate-500 mt-0.5">
                 Toàn bộ tệp Audio & PDF tải lên đều được tự động lưu trữ vĩnh viễn trên ổ cứng máy tính của bạn
               </p>
             </div>
@@ -227,11 +227,11 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
         </div>
 
         {/* Directory Bar & Quick Actions */}
-        <div className="px-6 py-3 bg-blue-50/50 border-b border-blue-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2 text-slate-700 font-medium min-w-0">
-            <FolderOpen className="w-4 h-4 text-blue-700 shrink-0" />
+            <FolderOpen className="w-4 h-4 text-[#0F2744] shrink-0" />
             <span className="font-bold text-slate-900 shrink-0">Thư mục máy tính:</span>
-            <code className="bg-white px-2 py-1 rounded border border-blue-200 text-blue-900 font-mono text-[11px] truncate max-w-md select-all">
+            <code className="bg-white px-2 py-1 rounded border border-slate-200 text-[#0F2744] font-mono text-[11px] truncate max-w-md select-all">
               {localStoragePath || 'local_storage/'}
             </code>
           </div>
@@ -241,13 +241,13 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
               type="button"
               onClick={handleOpenFolderOnComputer}
               disabled={isOpeningFolder}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-800 border border-blue-300 font-bold rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
               title="Mở thư mục chứa file trong Windows File Explorer"
             >
               {isOpeningFolder ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <FolderOpen className="w-3.5 h-3.5 text-blue-600" />
+                <FolderOpen className="w-3.5 h-3.5 text-[#0F2744]" />
               )}
               <span>Mở trên Explorer</span>
             </button>
@@ -255,7 +255,7 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
             <button
               type="button"
               onClick={handleDownloadAllCurrent}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#0F2744] hover:bg-[#0A1B30] text-white font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
               title="Tải toàn bộ Audio & PDF của đề hiện tại về thư mục Downloads"
             >
               <Download className="w-3.5 h-3.5" />
@@ -292,13 +292,13 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
               onClick={() => setActiveTab('audio')}
               className={`pb-2.5 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
                 activeTab === 'audio'
-                  ? 'border-blue-700 text-blue-700'
+                  ? 'border-[#0F2744] text-[#0F2744]'
                   : 'border-transparent text-slate-600 hover:text-slate-900'
               }`}
             >
               <FileAudio className="w-4 h-4" />
               <span>Tệp Âm Thanh (Audio)</span>
-              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-[#0F2744]">
                 {audioRecords.length + serverAudios.length}
               </span>
             </button>
@@ -308,13 +308,13 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
               onClick={() => setActiveTab('pdf')}
               className={`pb-2.5 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
                 activeTab === 'pdf'
-                  ? 'border-blue-700 text-blue-700'
+                  ? 'border-[#0F2744] text-[#0F2744]'
                   : 'border-transparent text-slate-600 hover:text-slate-900'
               }`}
             >
               <FileText className="w-4 h-4" />
               <span>Tệp Đề Thi (PDF)</span>
-              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-[#0F2744]">
                 {pdfRecords.length + serverPdfs.length}
               </span>
             </button>
@@ -336,9 +336,9 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
           {activeTab === 'audio' && (
             <div className="space-y-3">
               {/* Active test audio shortcut card */}
-              <div className="p-4 bg-blue-50/80 border-2 border-blue-200 rounded-xl flex flex-wrap items-center justify-between gap-4">
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center">
+                  <div className="w-9 h-9 rounded-lg bg-[#0F2744] text-white flex items-center justify-center">
                     <FileAudio className="w-5 h-5" />
                   </div>
                   <div>
@@ -346,7 +346,7 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
                       <h4 className="text-sm font-bold text-slate-900">
                         {activeTestPack.audioFileName || `${activeTestPack.title}.mp3`}
                       </h4>
-                      <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-blue-200 text-blue-900">
+                      <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-slate-200 text-[#0F2744]">
                         Đang Mở
                       </span>
                     </div>
@@ -361,7 +361,7 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
                     <a
                       href={activeTestPack.audioUrl}
                       download={activeTestPack.audioFileName || `${activeTestPack.id}.mp3`}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs rounded-lg shadow-xs transition-colors"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#0F2744] hover:bg-[#0A1B30] text-white font-bold text-xs rounded-lg shadow-xs transition-colors"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Tải về máy (.mp3)</span>
@@ -477,7 +477,7 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
           {activeTab === 'pdf' && (
             <div className="space-y-3">
               {/* Active test PDF shortcut card */}
-              <div className="p-4 bg-blue-50/80 border-2 border-blue-200 rounded-xl flex flex-wrap items-center justify-between gap-4">
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg bg-red-600 text-white flex items-center justify-center">
                     <FileText className="w-5 h-5" />
@@ -487,7 +487,7 @@ export const LocalFilesManagerModal: React.FC<LocalFilesManagerModalProps> = ({
                       <h4 className="text-sm font-bold text-slate-900">
                         {activeTestPack.pdfFileName || `${activeTestPack.title}_exam.pdf`}
                       </h4>
-                      <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-red-200 text-red-900">
+                      <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-red-100 text-red-800">
                         Đang Mở
                       </span>
                     </div>
