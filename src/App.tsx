@@ -26,6 +26,7 @@ import { useDisplaySettings } from './utils/useDisplaySettings';
 import {
   generatePedagogicalReportClientSide,
   extractClassroomDrillsClientSide,
+  fallbackAlgorithmicDrills,
   translateVocabClientSide,
   generateQuestionsClientSide,
 } from './utils/clientGemini';
@@ -1045,23 +1046,28 @@ export default function App() {
           targetCount: count,
         });
         drills = clientRes.classroomDrills;
-        if (clientRes.updatedSegments) {
+        if (clientRes.updatedSegments && clientRes.updatedSegments.length > 0) {
           updatedSegments = clientRes.updatedSegments;
         }
       }
 
+      if (!drills || drills.length === 0) {
+        drills = fallbackAlgorithmicDrills(activeTest, count);
+      }
+
+      const finalDrills = drills;
       setTests((prev) =>
         prev.map((t) =>
           t.id === activeTest.id
             ? {
                 ...t,
-                classroomDrills: drills,
-                segments: updatedSegments || t.segments,
+                classroomDrills: finalDrills,
+                segments: updatedSegments && updatedSegments.length > 0 ? updatedSegments : t.segments,
               }
             : t
         )
       );
-      return drills!;
+      return finalDrills;
     },
     [activeTest, duration]
   );

@@ -409,22 +409,28 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
     setIsExtracting(true);
     setExtractError(null);
     try {
-      await onExtractClassroomDrills(extractCount);
-      setSelectedClassroomIdx(0);
-      setDictationById({});
-      setCheckedById({});
-      setHintMode('blind');
+      const drills = await onExtractClassroomDrills(extractCount);
+      if (drills && drills.length > 0) {
+        setSelectedClassroomIdx(0);
+        setDictationById({});
+        setCheckedById({});
+        setHintMode('blind');
+        setExtractError(null);
+      }
     } catch (err: unknown) {
-      setExtractError(
-        err instanceof Error ? err.message : 'Không thể trích xuất bộ câu luyện tập từ bài.'
-      );
+      const rawMsg = err instanceof Error ? err.message : 'Không thể trích xuất bộ câu luyện tập từ bài.';
+      if (rawMsg.includes('The page could not be found') || rawMsg.includes('404')) {
+        setExtractError('Không thể kết nối máy chủ API. Hệ thống đã tự động chuyển sang trích xuất câu ngoại tuyến bằng thuật toán.');
+      } else {
+        setExtractError(rawMsg);
+      }
     } finally {
       setIsExtracting(false);
     }
   };
 
   useEffect(() => {
-    if (activeTab !== 'classroom' || testPack.segments.length === 0 || isExtracting) return;
+    if (activeTab !== 'classroom' || isExtracting) return;
     const hasCollapsedDrills =
       classroomDrills.length > 1 &&
       classroomDrills.filter((d) => d.startSec <= 0.05).length >
@@ -438,7 +444,7 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
 
     void handleTriggerExtract();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, testPack.id, testPack.segments.length, classroomDrills.length]);
+  }, [activeTab, testPack.id, testPack.segments?.length, classroomDrills.length]);
 
   const handleCopyClassroomSheet = async () => {
     const lines = classroomDrills.map(

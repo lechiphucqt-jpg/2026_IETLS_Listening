@@ -1652,14 +1652,25 @@ Thông tin bổ sung:
 ${transcribedText ? `\n--- TRANSCRIPT TỪ AUDIO ---\n${transcribedText}\n` : ''}
 ${rawText ? `\n--- VĂN BẢN ĐỀ THI / SCRIPT NGƯỜI DÙNG CUNG CẤP ---\n${rawText}\n` : ''}
 
-Yêu cầu kỹ thuật (QUAN TRỌNG — BẮT BUỘC phải trả về mảng "questions" không rỗng):
-1. "questions" (ƯU TIÊN CAO NHẤT): Trích xuất từ PDF/văn bản toàn bộ câu hỏi chính thuộc ${partLabel} (tối đa 15 câu; dạng "completion", "mcq" hoặc "matching"). Nếu chỉ có Audio/Transcript mà chưa có PDF câu hỏi, hãy tự thiết kế 6–8 câu hỏi IELTS Listening chuẩn IDP/BC bám sát nội dung bài nghe.
-2. Với mỗi câu hỏi trong "questions":
-   - number, type ("completion" | "mcq" | "matching"), prompt (nội dung câu hỏi rõ ràng, giữ dấu ____ cho ô trống), contextBefore, contextAfter, wordLimitInstruction.
-   - Nếu là trắc nghiệm ("mcq") hoặc có danh sách lựa chọn, điền options [{ key: "A", text: "..." }, ...].
-   - Đối chiếu với Audio Transcript/PDF để điền "correctAnswer" chính xác (nếu PDF không kèm đáp án, hãy suy luận đáp án hợp lý nhất từ transcript/ngữ cảnh, KHÔNG được bỏ qua câu hỏi).
+Yêu cầu kỹ thuật (QUAN TRỌNG — BẮT BUỘC phải nhận diện chính xác và trả về mảng "questions" không rỗng):
+1. PHẠM VI PHẦN THI (${partLabel}):
+   - Chỉ trích xuất đúng phần câu hỏi thuộc ${partLabel} (Section ${partLabel.replace(/\D/g, '') || '2'}).
+   - Quy ước số câu hỏi chuẩn đề thi Cambridge IELTS:
+     * Part 1: thường là Questions 1 – 10
+     * Part 2: thường là Questions 11 – 20
+     * Part 3: thường là Questions 21 – 30
+     * Part 4: thường là Questions 31 – 40
+   - Bỏ qua các câu hỏi thuộc Part khác nếu tệp PDF chứa toàn bộ 4 phần.
+   - Giữ NGUYÊN VĂN số thứ tự in trên đề thi vào trường "number" (Ví dụ: đề in số 11, 12... thì number phải là 11, 12...; TUYỆT ĐỐI KHÔNG tự ý đánh số lại thành 1, 2, 3...).
+   - TUYỆT ĐỐI KHÔNG trích xuất câu ví dụ (Example).
+2. "questions" (ƯU TIÊN CAO NHẤT): Trích xuất từ PDF/văn bản toàn bộ câu hỏi chính thuộc ${partLabel}. Nếu chỉ có Audio/Transcript mà chưa có PDF câu hỏi, hãy tự thiết kế 6–8 câu hỏi IELTS Listening chuẩn IDP/BC bám sát nội dung bài nghe.
+3. Với mỗi câu hỏi trong "questions":
+   - Với dạng "completion": prompt phải giữ nguyên tiêu đề mục (nếu có) và câu chứa chỗ trống, thể hiện vị trí chỗ trống bằng dấu "____" (ví dụ: "Facilities: hire of bicycle and ____ for daily routes"). Ghi rõ contextBefore, contextAfter và giữ nguyên vẹn wordLimitInstruction in trên đề thi.
+   - Với dạng "mcq": prompt là thân câu hỏi, options là danh sách [{ key: "A", text: "..." }, ...], correctAnswer là chữ cái đáp án đúng.
+   - Với dạng "matching": prompt là tên đối tượng/địa điểm, options là danh sách lựa chọn, correctAnswer là chữ cái tương ứng.
+   - Đối chiếu với Audio Transcript/PDF để điền "correctAnswer" chính xác (nếu PDF có Answer Key, dùng đúng đáp án chuẩn).
    - Điền timestampSec, timestampLabel "[mm:ss.xx]", paraphraseQuestion, paraphraseTranscript, distractorType, distractorDetail (tiếng Việt), transcriptQuote, explanationVi (giải thích cụ thể bằng tiếng Việt VÌ SAO đáp án đúng và các bẫy bị loại), errorCategoryHint ("Spelling" | "Plural/Singular" | "Unit" | "Distractor" | "WordLimit").
-${needSegmentsFromStep2 ? '3. "segments": Tách lời thoại/script từ PDF hoặc văn bản thành TỪNG CÂU ĐƠN / LƯỢT THOẠI RIÊNG BIỆT theo trình tự thời gian (tối đa 45 câu, mỗi câu 1 người nói duy nhất).' : '3. "segments": Có thể bỏ trống mảng này vì đã có Transcript từ Audio ở trên.'}`;
+${needSegmentsFromStep2 ? '4. "segments": Tách lời thoại/script từ PDF hoặc văn bản thành TỪNG CÂU ĐƠN / LƯỢT THOẠI RIÊNG BIỆT theo trình tự thời gian (tối đa 45 câu, mỗi câu 1 người nói duy nhất).' : '4. "segments": Có thể bỏ trống mảng này vì đã có Transcript từ Audio ở trên.'}`;
 
         let parsed: Partial<ListeningTestPack> | null = null;
 
@@ -2738,9 +2749,18 @@ Với mỗi câu trong mảng "sentences", giữ giải thích ngắn gọn (<= 
         count?: number;
       };
 
-      if (!testPack || !Array.isArray(testPack.segments) || testPack.segments.length === 0) {
-        res.status(400).json({ error: 'Bài nghe chưa có dữ liệu Transcript để trích xuất câu.' });
+      if (!testPack) {
+        res.status(400).json({ error: 'Dữ liệu bài nghe không hợp lệ.' });
         return;
+      }
+
+      // If segments are missing, synthesize provisional segments from rawText or duration
+      if (!Array.isArray(testPack.segments) || testPack.segments.length === 0) {
+        const provisionalSegments = ensureGranularSegments(
+          [],
+          testPack.durationSec || 180
+        );
+        testPack.segments = provisionalSegments;
       }
 
       const targetCount = Math.min(30, Math.max(8, Number(count) || 12));

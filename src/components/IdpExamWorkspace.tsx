@@ -564,22 +564,22 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
                     </div>
                   </div>
 
-                  <p className="text-[15px] font-medium text-slate-900 leading-relaxed mb-3">
+                  <p className="text-[15px] font-bold text-[#0F2744] leading-relaxed mb-3">
                     {q.prompt}
                   </p>
 
                   {!q.options || q.options.length === 0 ? (
-                    <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
-                      {q.contextBefore && <span>{q.contextBefore}</span>}
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-[#0F2744] bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
+                      {q.contextBefore && <span className="font-semibold text-[#0F2744]">{q.contextBefore}</span>}
                       <input
                         type="text"
                         aria-label={`Đáp án câu ${q.number}`}
                         value={userVal}
                         onChange={(e) => onChangeAnswer(q.number, e.target.value)}
                         placeholder={`Câu ${q.number}...`}
-                        className="min-w-[160px] flex-1 max-w-[260px] bg-white border border-slate-300 focus:border-blue-700 focus:ring-2 focus:ring-blue-700/20 rounded-md px-3 py-1.5 text-sm font-medium text-slate-900 outline-none"
+                        className="min-w-[160px] flex-1 max-w-[260px] bg-white border border-slate-300 focus:border-[#0F2744] focus:ring-2 focus:ring-[#0F2744]/20 rounded-md px-3 py-1.5 text-sm font-semibold text-[#0F2744] outline-none"
                       />
-                      {q.contextAfter && <span>{q.contextAfter}</span>}
+                      {q.contextAfter && <span className="font-semibold text-[#0F2744]">{q.contextAfter}</span>}
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -593,10 +593,10 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
                             key={opt.key}
                             className={`flex items-start gap-3 px-4 py-2.5 rounded-lg border text-sm cursor-pointer transition-colors ${
                               isRightOpt
-                                ? 'bg-emerald-50 border-emerald-500 text-slate-900 font-medium'
+                                ? 'bg-emerald-50 border-emerald-500 text-[#0F2744] font-medium'
                                 : checked
-                                  ? 'bg-blue-50 border-blue-600 text-slate-900 font-medium'
-                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                                  ? 'bg-blue-50 border-blue-600 text-[#0F2744] font-medium'
+                                  : 'bg-white border-slate-200 text-[#0F2744] hover:bg-slate-50'
                             }`}
                           >
                             <input
@@ -605,10 +605,10 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
                               value={opt.key}
                               checked={checked}
                               onChange={() => onChangeAnswer(q.number, opt.key)}
-                              className="mt-0.5 accent-blue-700"
+                              className="mt-0.5 accent-[#0F2744]"
                             />
-                            <span className="flex-1">
-                              <strong className="font-mono mr-1.5">{opt.key}.</strong>
+                            <span className="flex-1 text-[#0F2744] font-medium">
+                              <strong className="font-mono mr-1.5 text-[#0F2744] font-bold">{opt.key}.</strong>
                               {opt.text}
                             </span>
                             {isRightOpt && (
@@ -700,7 +700,7 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
                             <span className="text-xs text-slate-500 font-medium block mb-1">
                               Trích đoạn Audio chứa đáp án:
                             </span>
-                            <strong className="text-xs text-slate-900 leading-relaxed block">
+                            <strong className="text-xs text-[#0F2744] leading-relaxed block">
                               “{q.transcriptQuote}”
                             </strong>
                           </div>

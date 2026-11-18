@@ -217,7 +217,7 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
             <div key={item.questionNumber} className="p-6 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2.5">
-                  <span className="font-mono text-sm font-bold text-slate-900 tabular-nums">
+                  <span className="font-mono text-sm font-bold text-[#0F2744] tabular-nums">
                     Câu {item.questionNumber}
                   </span>
                   <span aria-hidden="true" className="text-slate-300">·</span>
