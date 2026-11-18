@@ -847,7 +847,7 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
                     )}
                   </div>
                 ))}
-                ))}
+               
               </div>
             </div>
           ) : (
