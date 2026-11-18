@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
-import { FileAudio, FileText, Loader2, Upload, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ExternalLink, FileAudio, FileText, Key, Loader2, Upload, X } from 'lucide-react';
 import type { ListeningTestPack } from '../types/ielts';
-import { safeParseJsonResponse } from '../utils/safeFetchJson';
+import { extractErrorMessage, safeParseJsonResponse } from '../utils/safeFetchJson';
 
 interface IngestModalProps {
   isOpen: boolean;
   onClose: () => void;
   onIngestSuccess: (testPack: ListeningTestPack) => void;
+  onOpenApiKey?: () => void;
 }
 
 interface IngestJobStatusResponse {
@@ -15,23 +16,31 @@ interface IngestJobStatusResponse {
   stepLabel?: string;
   progressPercent?: number;
   testPack?: ListeningTestPack;
-  error?: string;
+  error?: unknown;
 }
 
 export const IngestModal: React.FC<IngestModalProps> = ({
   isOpen,
   onClose,
   onIngestSuccess,
+  onOpenApiKey,
 }) => {
   const [title, setTitle] = useState('');
   const [partLabel, setPartLabel] = useState('Part 2');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [rawText, setRawText] = useState('');
+  const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('GEMINI_API_KEY') || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [progressLabel, setProgressLabel] = useState('Đang tải tệp lên máy chủ...');
   const [progressPercent, setProgressPercent] = useState(10);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setUserApiKey(localStorage.getItem('GEMINI_API_KEY') || '');
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -42,6 +51,14 @@ export const IngestModal: React.FC<IngestModalProps> = ({
     if (!audioFile && !pdfFile && !rawText.trim()) {
       setErrorMsg(
         'Vui lòng tải lên tệp Audio (MP3/WAV), tệp PDF đề thi, hoặc dán văn bản script/câu hỏi.'
+      );
+      return;
+    }
+
+    const apiKey = userApiKey.trim() || localStorage.getItem('GEMINI_API_KEY') || '';
+    if (!apiKey) {
+      setErrorMsg(
+        'Vui lòng dán khóa Gemini API Key vào ô màu vàng phía trên trước khi xử lý (Lấy key miễn phí tại aistudio.google.com/api-keys).'
       );
       return;
     }
@@ -59,17 +76,22 @@ export const IngestModal: React.FC<IngestModalProps> = ({
     setProgressPercent(10);
 
     try {
+      const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
       const formData = new FormData();
       formData.append('title', title);
       formData.append('partLabel', partLabel);
       formData.append('rawText', rawText);
+      if (apiKey) formData.append('apiKey', apiKey);
       if (audioFile) formData.append('audio', audioFile);
       if (pdfFile) formData.append('pdf', pdfFile);
 
       const startRes = await fetch('/api/ielts/ingest/start', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { Accept: 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
+        },
         body: formData,
       });
 
@@ -88,7 +110,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
           onClose();
           return;
         }
-        throw new Error(startData.error || 'Máy chủ không trả về mã phiên xử lý.');
+        throw new Error(extractErrorMessage(startData.error, 'Máy chủ không trả về mã phiên xử lý.'));
       }
 
       if (startData.stepLabel) setProgressLabel(startData.stepLabel);
@@ -110,7 +132,10 @@ export const IngestModal: React.FC<IngestModalProps> = ({
             {
               method: 'GET',
               credentials: 'same-origin',
-              headers: { Accept: 'application/json' },
+              headers: {
+                Accept: 'application/json',
+                ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
+              },
               cache: 'no-store',
             }
           );
@@ -131,11 +156,11 @@ export const IngestModal: React.FC<IngestModalProps> = ({
             break;
           }
           if (statusData.status === 'error') {
-            throw new Error(statusData.error || 'Không thể xử lý dữ liệu tải lên.');
+            throw new Error(extractErrorMessage(statusData.error, 'Không thể xử lý dữ liệu tải lên.'));
           }
         } catch (pollErr: unknown) {
           // Propagate definitive API/job errors immediately; retry up to 3 transient network glitches
-          const msg = pollErr instanceof Error ? pollErr.message : '';
+          const msg = extractErrorMessage(pollErr, '');
           const isTransientNetwork =
             pollErr instanceof TypeError ||
             msg.includes('Failed to fetch') ||
@@ -160,7 +185,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
       setRawText('');
       onClose();
     } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Lỗi kết nối máy chủ.');
+      setErrorMsg(extractErrorMessage(err, 'Lỗi kết nối máy chủ.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -194,6 +219,51 @@ export const IngestModal: React.FC<IngestModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {/* Ô nhập Gemini API Key trực tiếp trong IngestModal */}
+          <div className="p-3.5 bg-amber-50/90 border border-amber-300 rounded-xl space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label
+                htmlFor="modal-gemini-key"
+                className="text-xs font-bold text-amber-900 flex items-center gap-1.5"
+              >
+                <Key className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                Khóa Gemini API Key (Bắt buộc để AI đọc Audio & PDF)
+              </label>
+              <a
+                href="https://aistudio.google.com/api-keys"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-900 underline"
+              >
+                Lấy key miễn phí (Google AI Studio)
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                id="modal-gemini-key"
+                type="password"
+                value={userApiKey}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setUserApiKey(val);
+                  localStorage.setItem('GEMINI_API_KEY', val.trim());
+                }}
+                placeholder="Dán mã API Key của bạn (bắt đầu bằng AIzaSy...)"
+                className="flex-1 px-3 py-2 text-xs font-mono bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+              {userApiKey.trim() ? (
+                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg whitespace-nowrap">
+                  ✓ Đã có Key
+                </span>
+              ) : (
+                <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-1.5 rounded-lg whitespace-nowrap">
+                  Chưa có Key
+                </span>
+              )}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="sm:col-span-2">
               <label
@@ -330,9 +400,32 @@ export const IngestModal: React.FC<IngestModalProps> = ({
           {errorMsg && (
             <div
               role="alert"
-              className="p-3 bg-red-50 border border-red-200 text-red-800 rounded-lg text-xs"
+              className="p-3.5 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs space-y-2"
             >
-              {errorMsg}
+              <div className="font-semibold leading-relaxed">{errorMsg}</div>
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-red-200/60">
+                {onOpenApiKey && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenApiKey();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-xs transition-colors cursor-pointer"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    Cài đặt / Thay đổi Gemini API Key
+                  </button>
+                )}
+                <a
+                  href="https://aistudio.google.com/api-keys"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 font-semibold text-red-700 hover:text-red-900 underline text-xs"
+                >
+                  Lấy khóa API miễn phí
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
             </div>
           )}
 

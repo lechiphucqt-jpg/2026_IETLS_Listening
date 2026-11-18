@@ -102,10 +102,15 @@ Bạn có thắc mắc gì về lý do chọn đáp án, cách người nói gi�
         text: m.text,
       }));
 
+      const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
       const res = await fetch('/api/ielts/coach-chat', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
+        },
         body: JSON.stringify({
           testTitle,
           partLabel,
@@ -113,6 +118,7 @@ Bạn có thắc mắc gì về lý do chọn đáp án, cách người nói gi�
           userAnswer,
           message: content,
           history,
+          apiKey,
         }),
       });
 

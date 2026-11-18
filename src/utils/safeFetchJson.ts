@@ -1,4 +1,40 @@
-export async function safeParseJsonResponse<T extends { error?: string }>(
+export function extractErrorMessage(err: unknown, fallback = 'Lỗi máy chủ không xác định.'): string {
+  if (!err) return fallback;
+  if (typeof err === 'string') {
+    const trimmed = err.trim();
+    if (trimmed === '[object Object]' || !trimmed) return fallback;
+    return trimmed;
+  }
+  if (err instanceof Error) {
+    const msg = err.message?.trim();
+    if (msg && msg !== '[object Object]') return msg;
+    return fallback;
+  }
+  if (typeof err === 'object') {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj.message === 'string' && obj.message.trim() && obj.message !== '[object Object]') {
+      return obj.message.trim();
+    }
+    if (typeof obj.error === 'string' && obj.error.trim() && obj.error !== '[object Object]') {
+      return obj.error.trim();
+    }
+    if (obj.error && typeof obj.error === 'object') {
+      return extractErrorMessage(obj.error, fallback);
+    }
+    if (typeof obj.details === 'string' && obj.details.trim()) {
+      return obj.details.trim();
+    }
+    try {
+      const str = JSON.stringify(err);
+      if (str && str !== '{}') return str;
+    } catch {
+      // fallback
+    }
+  }
+  return fallback;
+}
+
+export async function safeParseJsonResponse<T extends { error?: unknown; message?: unknown }>(
   res: Response,
   fallbackError = 'Không thể xử lý phản hồi từ máy chủ.'
 ): Promise<T> {
@@ -19,7 +55,7 @@ export async function safeParseJsonResponse<T extends { error?: string }>(
   } catch {
     if (trimmed.startsWith('<') || /<!doctype html|<html/i.test(trimmed)) {
       throw new Error(
-        'Cổng kết nối trả về trang HTML thay vì dữ liệu JSON (có thể do hết phiên đăng nhập hoặc quá thời gian chờ). Vui lòng tải lại trang (F5) và thử lại.'
+        'Cổng kết nối trả về trang HTML thay vì dữ liệu JSON (có thể do hết phiên hoặc đường dẫn API chưa được cấu hình). Vui lòng kiểm tra lại kết nối.'
       );
     }
     throw new Error(
@@ -30,7 +66,11 @@ export async function safeParseJsonResponse<T extends { error?: string }>(
   }
 
   if (!res.ok) {
-    throw new Error(parsed.error || `Máy chủ trả về lỗi HTTP ${res.status}.`);
+    const msg = extractErrorMessage(
+      parsed.error || (parsed as Record<string, unknown>).message,
+      `Máy chủ trả về lỗi HTTP ${res.status}.`
+    );
+    throw new Error(msg);
   }
 
   return parsed;

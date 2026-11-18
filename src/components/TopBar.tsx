@@ -1,5 +1,5 @@
 import React from 'react';
-import { Maximize, Minimize } from 'lucide-react';
+import { Key, Maximize, Minimize } from 'lucide-react';
 
 export type WorkspaceView = 'exam' | 'analysis' | 'practice' | 'vocabulary';
 
@@ -7,6 +7,7 @@ interface TopBarProps {
   activeView: WorkspaceView;
   onChangeView: (view: WorkspaceView) => void;
   onOpenIngest: () => void;
+  onOpenApiKey?: () => void;
   fontScale?: number;
   onIncreaseFont?: () => void;
   onDecreaseFont?: () => void;
@@ -140,6 +141,20 @@ export const TopBar: React.FC<TopBarProps> = ({
               </span>
             </button>
           )}
+
+          {/* Nút Cài đặt API Key & Hướng dẫn lấy key */}
+          <button
+            type="button"
+            onClick={onOpenApiKey}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-400 bg-red-50 text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
+            title="Cài đặt khóa Gemini API Key để nạp đề & dùng AI"
+          >
+            <Key className="w-3.5 h-3.5 text-red-600 shrink-0" />
+            <span>API Key</span>
+            <span className="hidden sm:inline text-[11px] font-normal text-red-600">
+              (Lấy key miễn phí)
+            </span>
+          </button>
 
           {/* Primary Action */}
           <button

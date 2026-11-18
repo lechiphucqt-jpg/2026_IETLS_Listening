@@ -17,6 +17,7 @@ import {
 } from './components/AdvancedPracticeStudio';
 import { VocabularyFlashcardView } from './components/VocabularyFlashcardView';
 import { IngestModal } from './components/IngestModal';
+import { ApiKeyModal } from './components/ApiKeyModal';
 import { safeParseJsonResponse } from './utils/safeFetchJson';
 import { useDisplaySettings } from './utils/useDisplaySettings';
 
@@ -58,6 +59,15 @@ function mergeTestsWithSamples(customList: ListeningTestPack[]): ListeningTestPa
     validCustom.push({ ...item, isCustomUpload: true });
   }
   return [...validCustom, ...getSamplesWithOverrides()];
+}
+
+function getAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+  const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
+  return {
+    Accept: 'application/json',
+    ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
+    ...(extra || {}),
+  };
 }
 
 function loadInitialTests(): ListeningTestPack[] {
@@ -187,6 +197,7 @@ export default function App() {
   const [practiceTab, setPracticeTab] = useState<PracticeModeTab>('classroom');
   const [focusTimestampSec, setFocusTimestampSec] = useState<number | null>(null);
   const [isIngestOpen, setIsIngestOpen] = useState(false);
+  const [isApiKeyOpen, setIsApiKeyOpen] = useState(false);
 
   // Answers & Exam Timer
   const [answersByTest, setAnswersByTest] = useState<Record<string, Record<number, string>>>(() =>
@@ -613,7 +624,7 @@ export default function App() {
       const res = await fetch('/api/ielts/analyze', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           testPack: activeTest,
           userAnswers,
@@ -684,7 +695,7 @@ export default function App() {
       const res = await fetch('/api/ielts/translate-vocab', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           word,
           sentenceContext,
@@ -733,7 +744,7 @@ export default function App() {
       const res = await fetch('/api/ielts/extract-classroom-drills', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           testPack: {
             ...activeTest,
@@ -777,7 +788,7 @@ export default function App() {
     const res = await fetch('/api/ielts/generate-questions', {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ testPack: activeTest }),
     });
     const data = await safeParseJsonResponse<{
@@ -966,6 +977,7 @@ export default function App() {
         activeView={activeView}
         onChangeView={setActiveView}
         onOpenIngest={() => setIsIngestOpen(true)}
+        onOpenApiKey={() => setIsApiKeyOpen(true)}
         fontScale={fontScale}
         onIncreaseFont={increaseFont}
         onDecreaseFont={decreaseFont}
@@ -1089,11 +1101,17 @@ export default function App() {
       <IngestModal
         isOpen={isIngestOpen}
         onClose={() => setIsIngestOpen(false)}
+        onOpenApiKey={() => setIsApiKeyOpen(true)}
         onIngestSuccess={(newPack) => {
           setTests((prev) => [newPack, ...prev]);
           setActiveTestId(newPack.id);
           setActiveView('exam');
         }}
+      />
+
+      <ApiKeyModal
+        isOpen={isApiKeyOpen}
+        onClose={() => setIsApiKeyOpen(false)}
       />
     </div>
   );
