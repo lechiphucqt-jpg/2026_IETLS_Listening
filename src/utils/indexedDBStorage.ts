@@ -6,6 +6,8 @@
  * IndexedDB persist across sessions, browser restarts, and device reboots.
  */
 
+import type { ListeningTestPack } from '../types/ielts';
+
 const DB_NAME = 'lexisync_media_db_v1';
 const DB_VERSION = 1;
 const STORE_NAME = 'media_records';
@@ -238,3 +240,284 @@ export async function isAudioUrlPlayable(url: string | undefined): Promise<boole
     return false;
   }
 }
+
+export interface LexiSyncPortablePackage {
+  format: 'lexisync_package_v1';
+  exportedAt: string;
+  testPack: ListeningTestPack;
+  audioBase64?: string;
+  audioMime?: string;
+  audioFileName?: string;
+  pdfBase64?: string;
+  pdfMime?: string;
+  pdfFileName?: string;
+}
+
+export interface LexiSyncMultiPackage {
+  format: 'lexisync_multi_v1';
+  exportedAt: string;
+  tests: LexiSyncPortablePackage[];
+}
+
+export function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const res = reader.result as string;
+      const base64 = res.includes(',') ? res.split(',')[1] : res;
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+export function base64ToBlob(base64: string, mimeType: string): Blob {
+  const byteChars = atob(base64);
+  const sliceSize = 1024 * 512;
+  const byteArrays: Uint8Array[] = [];
+
+  for (let offset = 0; offset < byteChars.length; offset += sliceSize) {
+    const slice = byteChars.slice(offset, offset + sliceSize);
+    const byteNumbers = new Array(slice.length);
+    for (let i = 0; i < slice.length; i++) {
+      byteNumbers[i] = slice.charCodeAt(i);
+    }
+    byteArrays.push(new Uint8Array(byteNumbers));
+  }
+
+  return new Blob(byteArrays, { type: mimeType });
+}
+
+/**
+ * Trigger browser file download for a Blob
+ */
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * Export a single ListeningTestPack bundled with its Audio and PDF as a portable .lexisync file
+ */
+export async function exportTestPackage(testPack: ListeningTestPack): Promise<void> {
+  let audioBase64: string | undefined;
+  let audioMime: string | undefined;
+  let audioFileName = testPack.audioFileName || `${testPack.id}.mp3`;
+
+  let pdfBase64: string | undefined;
+  let pdfMime: string | undefined;
+  let pdfFileName = testPack.pdfFileName || `${testPack.id}.pdf`;
+
+  // 1. Fetch Audio Blob (from IndexedDB first, then fallback to URL)
+  try {
+    const storedAudio = await getMediaBlob(testPack.id, 'audio');
+    if (storedAudio?.blob) {
+      audioBase64 = await blobToBase64(storedAudio.blob);
+      audioMime = storedAudio.mimeType || 'audio/mpeg';
+      if (storedAudio.fileName) audioFileName = storedAudio.fileName;
+    } else if (testPack.audioUrl) {
+      const res = await fetch(testPack.audioUrl);
+      if (res.ok) {
+        const blob = await res.blob();
+        audioBase64 = await blobToBase64(blob);
+        audioMime = blob.type || 'audio/mpeg';
+      }
+    }
+  } catch (err) {
+    console.warn('[Export] Could not bundle audio:', err);
+  }
+
+  // 2. Fetch PDF Blob
+  try {
+    const storedPdf = await getMediaBlob(testPack.id, 'pdf');
+    if (storedPdf?.blob) {
+      pdfBase64 = await blobToBase64(storedPdf.blob);
+      pdfMime = storedPdf.mimeType || 'application/pdf';
+      if (storedPdf.fileName) pdfFileName = storedPdf.fileName;
+    } else if (testPack.pdfUrl) {
+      const res = await fetch(testPack.pdfUrl);
+      if (res.ok) {
+        const blob = await res.blob();
+        pdfBase64 = await blobToBase64(blob);
+        pdfMime = blob.type || 'application/pdf';
+      }
+    }
+  } catch (err) {
+    console.warn('[Export] Could not bundle PDF:', err);
+  }
+
+  const pkg: LexiSyncPortablePackage = {
+    format: 'lexisync_package_v1',
+    exportedAt: new Date().toISOString(),
+    testPack: {
+      ...testPack,
+      // Clear host-specific temporary blob URLs so receiving machine regenerates fresh ones
+      audioUrl: undefined,
+      pdfUrl: undefined,
+    },
+    audioBase64,
+    audioMime,
+    audioFileName,
+    pdfBase64,
+    pdfMime,
+    pdfFileName,
+  };
+
+  const jsonStr = JSON.stringify(pkg, null, 2);
+  const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
+  const safeTitle = (testPack.title || 'IELTS_Test').replace(/[^a-zA-Z0-9_\u00C0-\u1EF9]/g, '_');
+  downloadBlob(jsonBlob, `${safeTitle}.lexisync`);
+}
+
+/**
+ * Export all custom tests into a single backup package
+ */
+export async function exportAllTestsPackage(tests: ListeningTestPack[]): Promise<void> {
+  const customTests = tests.filter((t) => t.isCustomUpload);
+  if (customTests.length === 0) {
+    throw new Error('Chưa có đề thi tự nạp nào để xuất.');
+  }
+
+  const packagedList: LexiSyncPortablePackage[] = [];
+
+  for (const t of customTests) {
+    let audioBase64: string | undefined;
+    let audioMime: string | undefined;
+    let audioFileName = t.audioFileName || `${t.id}.mp3`;
+
+    let pdfBase64: string | undefined;
+    let pdfMime: string | undefined;
+    let pdfFileName = t.pdfFileName || `${t.id}.pdf`;
+
+    try {
+      const storedAudio = await getMediaBlob(t.id, 'audio');
+      if (storedAudio?.blob) {
+        audioBase64 = await blobToBase64(storedAudio.blob);
+        audioMime = storedAudio.mimeType || 'audio/mpeg';
+        if (storedAudio.fileName) audioFileName = storedAudio.fileName;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const storedPdf = await getMediaBlob(t.id, 'pdf');
+      if (storedPdf?.blob) {
+        pdfBase64 = await blobToBase64(storedPdf.blob);
+        pdfMime = storedPdf.mimeType || 'application/pdf';
+        if (storedPdf.fileName) pdfFileName = storedPdf.fileName;
+      }
+    } catch {
+      // ignore
+    }
+
+    packagedList.push({
+      format: 'lexisync_package_v1',
+      exportedAt: new Date().toISOString(),
+      testPack: { ...t, audioUrl: undefined, pdfUrl: undefined },
+      audioBase64,
+      audioMime,
+      audioFileName,
+      pdfBase64,
+      pdfMime,
+      pdfFileName,
+    });
+  }
+
+  const multiPkg: LexiSyncMultiPackage = {
+    format: 'lexisync_multi_v1',
+    exportedAt: new Date().toISOString(),
+    tests: packagedList,
+  };
+
+  const jsonBlob = new Blob([JSON.stringify(multiPkg, null, 2)], { type: 'application/json' });
+  const dateStr = new Date().toISOString().slice(0, 10);
+  downloadBlob(jsonBlob, `LexiSync_IELTS_Backup_${dateStr}.lexisync_pack`);
+}
+
+/**
+ * Import a .lexisync or .lexisync_pack file, unbundle audio/pdf to IndexedDB, and return the test packs
+ */
+export async function importTestPackage(file: File): Promise<ListeningTestPack[]> {
+  const text = await file.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('Tệp không đúng định dạng JSON hoặc bị hỏng.');
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Dữ liệu gói đề thi không hợp lệ.');
+  }
+
+  const rawObj = parsed as { format?: string; tests?: unknown[]; testPack?: unknown };
+  const itemsToProcess: LexiSyncPortablePackage[] = [];
+
+  if (rawObj.format === 'lexisync_package_v1' && rawObj.testPack) {
+    itemsToProcess.push(parsed as LexiSyncPortablePackage);
+  } else if (rawObj.format === 'lexisync_multi_v1' && Array.isArray(rawObj.tests)) {
+    itemsToProcess.push(...(rawObj.tests as LexiSyncPortablePackage[]));
+  } else if ((parsed as ListeningTestPack).id && Array.isArray((parsed as ListeningTestPack).questions)) {
+    // Raw ListeningTestPack JSON fallback
+    itemsToProcess.push({
+      format: 'lexisync_package_v1',
+      exportedAt: new Date().toISOString(),
+      testPack: parsed as ListeningTestPack,
+    });
+  } else {
+    throw new Error('Định dạng gói đề thi không được hỗ trợ (cần file .lexisync hoặc .lexisync_pack).');
+  }
+
+  const importedPacks: ListeningTestPack[] = [];
+
+  for (const item of itemsToProcess) {
+    const pack = { ...item.testPack, isCustomUpload: true };
+
+    // Unpack Audio if embedded
+    if (item.audioBase64) {
+      try {
+        const audioBlob = base64ToBlob(item.audioBase64, item.audioMime || 'audio/mpeg');
+        const liveAudioUrl = await saveMediaBlob(
+          pack.id,
+          'audio',
+          audioBlob,
+          item.audioFileName || `${pack.id}.mp3`
+        );
+        pack.audioUrl = liveAudioUrl;
+        pack.audioFileName = item.audioFileName || pack.audioFileName || `${pack.id}.mp3`;
+      } catch (err) {
+        console.warn('[Import] Could not save unpacked audio to IndexedDB:', err);
+      }
+    }
+
+    // Unpack PDF if embedded
+    if (item.pdfBase64) {
+      try {
+        const pdfBlob = base64ToBlob(item.pdfBase64, item.pdfMime || 'application/pdf');
+        const livePdfUrl = await saveMediaBlob(
+          pack.id,
+          'pdf',
+          pdfBlob,
+          item.pdfFileName || `${pack.id}.pdf`
+        );
+        pack.pdfUrl = livePdfUrl;
+        pack.pdfFileName = item.pdfFileName || pack.pdfFileName || `${pack.id}.pdf`;
+      } catch (err) {
+        console.warn('[Import] Could not save unpacked PDF to IndexedDB:', err);
+      }
+    }
+
+    importedPacks.push(pack);
+  }
+
+  return importedPacks;
+}
+

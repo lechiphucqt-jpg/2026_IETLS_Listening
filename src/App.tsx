@@ -23,7 +23,10 @@ import { useDisplaySettings } from './utils/useDisplaySettings';
 import { generatePedagogicalReportClientSide } from './utils/clientGemini';
 import {
   deleteMediaForTest,
+  exportTestPackage,
+  getMediaBlob,
   getOrCreateLiveMediaUrl,
+  importTestPackage,
   isAudioUrlPlayable,
   saveMediaBlob,
 } from './utils/indexedDBStorage';
@@ -193,6 +196,35 @@ function loadInitialFlashcards(): FlashcardItem[] {
     status: 'new',
     addedAt: new Date().toISOString(),
   }));
+}
+
+async function syncTestToServer(
+  testPack: ListeningTestPack,
+  audioBlob?: Blob,
+  pdfBlob?: Blob
+): Promise<ListeningTestPack | null> {
+  try {
+    const formData = new FormData();
+    formData.append('testPack', JSON.stringify(testPack));
+    if (audioBlob) {
+      formData.append('audio', audioBlob, testPack.audioFileName || `${testPack.id}.mp3`);
+    }
+    if (pdfBlob) {
+      formData.append('pdf', pdfBlob, testPack.pdfFileName || `${testPack.id}.pdf`);
+    }
+    const res = await fetch('/api/ielts/sync-test', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: formData,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return (data.testPack as ListeningTestPack) || null;
+    }
+  } catch {
+    // server unreachable or running on static Vercel, safely ignored
+  }
+  return null;
 }
 
 export default function App() {
@@ -1017,16 +1049,21 @@ export default function App() {
         const freshUrl = await saveMediaBlob(testId, 'audio', file, file.name);
         setAudioHasError(false);
         setTtsNotice(null);
+        let updatedTest: ListeningTestPack | undefined;
         setTests((prev) =>
           prev.map((t) => {
             if (t.id !== testId) return t;
-            return {
+            updatedTest = {
               ...t,
               audioUrl: freshUrl,
               audioFileName: file.name,
             };
+            return updatedTest;
           })
         );
+        if (updatedTest) {
+          syncTestToServer(updatedTest, file).catch(() => {});
+        }
       } catch (err) {
         console.error('[Audio] Failed to reattach audio:', err);
         alert('Không thể lưu tệp âm thanh vào bộ nhớ trình duyệt: ' + String(err));
@@ -1034,6 +1071,52 @@ export default function App() {
     },
     []
   );
+
+  const handleExportPackage = useCallback(async (pack: ListeningTestPack) => {
+    try {
+      await exportTestPackage(pack);
+    } catch (err: unknown) {
+      console.error('[Export] Failed:', err);
+      alert('Lỗi xuất gói đề thi: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  }, []);
+
+  const handleImportPackage = useCallback(async (file: File) => {
+    try {
+      const importedList = await importTestPackage(file);
+      if (importedList.length === 0) {
+        alert('Không tìm thấy đề thi hợp lệ trong tệp.');
+        return;
+      }
+
+      setTests((prev) => {
+        const existingIds = new Set(prev.map((t) => t.id));
+        const newItems = importedList.filter((item) => !existingIds.has(item.id));
+        const updated = prev.map((t) => {
+          const match = importedList.find((item) => item.id === t.id);
+          return match ? { ...t, ...match } : t;
+        });
+        return [...newItems, ...updated];
+      });
+
+      if (importedList[0]) {
+        setActiveTestId(importedList[0].id);
+        setActiveView('exam');
+      }
+
+      // Try syncing to server if available
+      for (const pack of importedList) {
+        getMediaBlob(pack.id, 'audio').then((audioRec) => {
+          syncTestToServer(pack, audioRec?.blob).catch(() => {});
+        });
+      }
+
+      alert(`Đã nhập thành công ${importedList.length} đề thi kèm toàn bộ Audio & PDF! Bạn có thể luyện tập ngay.`);
+    } catch (err: unknown) {
+      console.error('[Import] Failed:', err);
+      alert('Lỗi nhập đề thi: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  }, []);
 
   const savedWordsSet = useMemo(() => {
     return new Set(
@@ -1188,6 +1271,7 @@ export default function App() {
         onChangeView={setActiveView}
         onOpenIngest={() => setIsIngestOpen(true)}
         onOpenApiKey={() => setIsApiKeyOpen(true)}
+        onImportPackage={handleImportPackage}
         fontScale={fontScale}
         onIncreaseFont={increaseFont}
         onDecreaseFont={decreaseFont}
@@ -1213,6 +1297,7 @@ export default function App() {
         isSynthesizing={isSynthesizing}
         ttsNotice={ttsNotice}
         onReattachAudio={handleReattachAudio}
+        onExportPackage={handleExportPackage}
         audioHasError={audioHasError}
       />
 
@@ -1314,10 +1399,28 @@ export default function App() {
         isOpen={isIngestOpen}
         onClose={() => setIsIngestOpen(false)}
         onOpenApiKey={() => setIsApiKeyOpen(true)}
-        onIngestSuccess={(newPack) => {
+        onIngestSuccess={async (newPack) => {
           setTests((prev) => [newPack, ...prev]);
           setActiveTestId(newPack.id);
           setActiveView('exam');
+
+          // Attempt two-way sync to server if running in LAN/server mode
+          try {
+            const audioRecord = await getMediaBlob(newPack.id, 'audio');
+            const pdfRecord = await getMediaBlob(newPack.id, 'pdf');
+            const synced = await syncTestToServer(
+              newPack,
+              audioRecord?.blob,
+              pdfRecord?.blob
+            );
+            if (synced && synced.audioUrl) {
+              setTests((prev) =>
+                prev.map((t) => (t.id === newPack.id ? { ...t, ...synced } : t))
+              );
+            }
+          } catch {
+            // ignore
+          }
         }}
       />
 

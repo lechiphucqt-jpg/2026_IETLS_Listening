@@ -1100,6 +1100,45 @@ async function startServer() {
     res.json({ ok: true, deleted });
   });
 
+  // Two-way sync endpoint for custom tests + media from any client machine
+  const syncMediaMiddleware = upload.fields([
+    { name: 'audio', maxCount: 1 },
+    { name: 'pdf', maxCount: 1 },
+  ]);
+
+  app.post('/api/ielts/sync-test', syncMediaMiddleware, (req: Request, res: Response) => {
+    try {
+      const raw = req.body.testPack;
+      if (!raw) {
+        res.status(400).json({ error: 'Thiếu thông tin testPack.' });
+        return;
+      }
+      const testPack: ListeningTestPack = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+      const audioFile = files?.audio?.[0];
+      const pdfFile = files?.pdf?.[0];
+
+      if (audioFile) {
+        const { streamMime } = normalizeAudioMimeType(audioFile.mimetype, audioFile.originalname);
+        const audioId = saveAudioBuffer(audioFile.buffer, streamMime, audioFile.originalname);
+        testPack.audioUrl = `/api/ielts/audio/${audioId}`;
+        testPack.audioFileName = audioFile.originalname;
+      }
+
+      if (pdfFile) {
+        const pdfId = savePdfBuffer(pdfFile.buffer, pdfFile.originalname);
+        testPack.pdfUrl = `/api/ielts/pdf/${pdfId}`;
+        testPack.pdfFileName = pdfFile.originalname;
+      }
+
+      upsertSavedTest(testPack);
+      res.json({ ok: true, testPack });
+    } catch (err: unknown) {
+      console.error('[sync-test] Error:', err);
+      res.status(500).json({ error: 'Không thể đồng bộ đề thi lên máy chủ.' });
+    }
+  });
+
   // Stream stored original PDF file
   app.get('/api/ielts/pdf/:id', (req: Request, res: Response) => {
     const rawId = req.params.id;

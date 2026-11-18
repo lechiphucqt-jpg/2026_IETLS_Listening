@@ -8,6 +8,7 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  Share2,
   Trash2,
   Upload,
   Volume2,
@@ -31,6 +32,7 @@ interface AudioSyncBarProps {
   isSynthesizing: boolean;
   ttsNotice: string | null;
   onReattachAudio?: (testId: string, file: File) => Promise<void>;
+  onExportPackage?: (testPack: ListeningTestPack) => void;
   audioHasError?: boolean;
 }
 
@@ -62,6 +64,7 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
   isSynthesizing,
   ttsNotice,
   onReattachAudio,
+  onExportPackage,
   audioHasError = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -335,6 +338,18 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
                     : 'Tạo Audio chuẩn IELTS (AI TTS)'}
                 </button>
               </div>
+            )}
+
+            {onExportPackage && (
+              <button
+                type="button"
+                onClick={() => onExportPackage(testPack)}
+                title="Đóng gói đề thi kèm Audio/PDF thành file .lexisync để gửi sang máy khác dùng ngay"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-md whitespace-nowrap shrink-0 cursor-pointer shadow-xs transition-colors"
+              >
+                <Share2 className="w-3.5 h-3.5 text-purple-600" aria-hidden="true" />
+                Xuất gói đề (.lexisync)
+              </button>
             )}
 
             {testPack.isCustomUpload && onDeleteTest && (

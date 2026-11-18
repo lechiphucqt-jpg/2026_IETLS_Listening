@@ -1,5 +1,5 @@
 import React from 'react';
-import { Key, Maximize, Minimize } from 'lucide-react';
+import { FolderInput, Key, Maximize, Minimize } from 'lucide-react';
 
 export type WorkspaceView = 'exam' | 'analysis' | 'practice' | 'vocabulary';
 
@@ -8,6 +8,7 @@ interface TopBarProps {
   onChangeView: (view: WorkspaceView) => void;
   onOpenIngest: () => void;
   onOpenApiKey?: () => void;
+  onImportPackage?: (file: File) => Promise<void>;
   fontScale?: number;
   onIncreaseFont?: () => void;
   onDecreaseFont?: () => void;
@@ -28,6 +29,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onChangeView,
   onOpenIngest,
   onOpenApiKey,
+  onImportPackage,
   fontScale = 100,
   onIncreaseFont,
   onDecreaseFont,
@@ -156,6 +158,31 @@ export const TopBar: React.FC<TopBarProps> = ({
               (Lấy key miễn phí)
             </span>
           </button>
+
+          {/* Nút Nhập gói đề thi (.lexisync) từ máy khác */}
+          {onImportPackage && (
+            <label
+              title="Nhập gói đề thi (.lexisync) từ máy khác bao gồm câu hỏi, transcript và audio"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg whitespace-nowrap cursor-pointer transition-colors shadow-xs"
+            >
+              <FolderInput className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
+              <span>Nhập đề thi</span>
+              <input
+                type="file"
+                accept=".lexisync,.lexisync_pack,.json"
+                className="sr-only"
+                onClick={(e) => {
+                  (e.target as HTMLInputElement).value = '';
+                }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    onImportPackage(file);
+                  }
+                }}
+              />
+            </label>
+          )}
 
           {/* Primary Action */}
           <button
