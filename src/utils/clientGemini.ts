@@ -57,7 +57,13 @@ interface GeminiTextPart {
 
 type GeminiContentPart = GeminiInlineData | GeminiTextPart;
 
-const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+const CANDIDATE_MODELS = [
+  'gemini-1.5-flash',
+  'gemini-1.5-flash-latest',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-exp',
+  'gemini-1.5-pro',
+];
 
 export async function callGeminiDirect(
   apiKey: string,
@@ -78,7 +84,7 @@ export async function callGeminiDirect(
   for (const model of CANDIDATE_MODELS) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanKey)}`;
-      
+
       const bodyPayload: Record<string, unknown> = {
         contents: [
           {
@@ -115,44 +121,72 @@ export async function callGeminiDirect(
       try {
         resJson = JSON.parse(resText);
       } catch {
-        throw new Error(`Google AI trả về mã HTTP ${res.status}: ${resText.slice(0, 150)}`);
+        throw new Error(`Google AI trả về phản hồi không hợp lệ (HTTP ${res.status}): ${resText.slice(0, 150)}`);
       }
 
       if (!res.ok || resJson.error) {
-        const errMsg = resJson.error?.message || `Lỗi HTTP ${res.status}`;
-        if (res.status === 404 || errMsg.includes('not found') || errMsg.includes('NOT_FOUND')) {
-          console.warn(`Model ${model} not available, trying next model...`);
+        const rawErrMsg = resJson.error?.message || `Lỗi HTTP ${res.status}: ${resText.slice(0, 150)}`;
+        lastError = new Error(`[${model}] ${rawErrMsg}`);
+
+        if (
+          rawErrMsg.includes('User location is not supported') ||
+          rawErrMsg.includes('location is not supported')
+        ) {
+          throw new Error(
+            'Khu vực mạng hiện tại chưa được Google Gemini hỗ trợ trực tiếp. Vui lòng bật VPN (sang Singapore, Nhật Bản hoặc Mỹ) rồi thử lại.'
+          );
+        }
+
+        if (
+          res.status === 400 &&
+          (rawErrMsg.includes('API_KEY_INVALID') ||
+            rawErrMsg.includes('API key not valid') ||
+            rawErrMsg.includes('API_KEY_SERVICE_BLOCKED'))
+        ) {
+          throw new Error(
+            'Khóa Gemini API Key không hợp lệ hoặc đã bị khóa. Vui lòng tạo khóa mới miễn phí tại aistudio.google.com/api-keys rồi dán vào ô màu vàng.'
+          );
+        }
+
+        if (res.status === 429 || rawErrMsg.includes('RESOURCE_EXHAUSTED')) {
+          throw new Error(
+            'Hạn mức API miễn phí (Free Tier) tạm thời hết lượt gọi. Vui lòng đợi 30 giây hoặc đổi sang khóa Gemini API khác.'
+          );
+        }
+
+        if (res.status === 404 || rawErrMsg.includes('not found') || rawErrMsg.includes('NOT_FOUND')) {
+          console.warn(`Model ${model} không khả dụng (${rawErrMsg}), đang thử model dự phòng...`);
           continue;
         }
-        if (res.status === 429 || errMsg.includes('RESOURCE_EXHAUSTED')) {
-          throw new Error('Hạn mức API miễn phí (Free Tier) đã tạm thời hết lượt gọi. Vui lòng thử lại sau vài giây hoặc đổi khóa API khác.');
-        }
-        if (res.status === 400 && (errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key not valid'))) {
-          throw new Error('Khóa Gemini API không hợp lệ. Vui lòng kiểm tra lại khóa API của bạn tại aistudio.google.com/api-keys.');
-        }
-        throw new Error(errMsg);
+
+        throw new Error(`Google Gemini báo lỗi (${model}): ${rawErrMsg}`);
       }
 
       const replyText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!replyText) {
-        throw new Error('Không nhận được nội dung từ Gemini AI.');
+        throw new Error(`Không nhận được nội dung từ Gemini AI (${model}).`);
       }
 
       return replyText;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      // If it's a critical quota or auth error, don't bother trying other models
+      // If it's a critical quota, auth or location error, propagate immediately
       if (
         lastError.message.includes('API_KEY_INVALID') ||
         lastError.message.includes('API key') ||
-        lastError.message.includes('Free Tier')
+        lastError.message.includes('Free Tier') ||
+        lastError.message.includes('VPN') ||
+        lastError.message.includes('location is not supported')
       ) {
         throw lastError;
       }
     }
   }
 
-  throw lastError || new Error('Không thể kết nối đến Google Gemini AI.');
+  throw (
+    lastError ||
+    new Error('Không thể kết nối đến Google Gemini AI. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.')
+  );
 }
 
 export interface ClientIngestInput {
@@ -277,6 +311,15 @@ Return ONLY a valid JSON object matching this schema:
       inlineData: {
         mimeType: 'application/pdf',
         data: pdfBase64,
+      },
+    });
+  }
+  if (audioFile && audioBase64 && transcribedSegments.length === 0) {
+    const audioMime = audioFile.type || 'audio/mp3';
+    examParts.push({
+      inlineData: {
+        mimeType: audioMime,
+        data: audioBase64,
       },
     });
   }
