@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   AudioWaveform,
+  Cloud,
   Download,
   FileText,
   Pause,
@@ -260,10 +261,20 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
 
             {testPack.audioUrl && !audioHasError ? (
               <div className="inline-flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200">
-                  <Volume2 className="w-3.5 h-3.5" aria-hidden="true" />
-                  Audio đã lưu & đồng bộ
-                </span>
+                {testPack.audioUrl.includes('drive.google.com') || testPack.audioUrl.includes('docs.google.com') ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-200"
+                    title="Audio đang phát trực tiếp từ Google Drive cá nhân, dùng được ổn định trên mọi máy tính và điện thoại"
+                  >
+                    <Cloud className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
+                    Audio Google Drive
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200">
+                    <Volume2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    Audio đã lưu & đồng bộ
+                  </span>
+                )}
                 {testPack.isCustomUpload && (
                   <a
                     href={testPack.audioUrl}

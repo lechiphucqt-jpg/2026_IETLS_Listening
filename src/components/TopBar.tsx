@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderInput, Key, Maximize, Minimize } from 'lucide-react';
+import { Cloud, FolderInput, Key, Maximize, Minimize } from 'lucide-react';
 
 export type WorkspaceView = 'exam' | 'analysis' | 'practice' | 'vocabulary';
 
@@ -8,6 +8,7 @@ interface TopBarProps {
   onChangeView: (view: WorkspaceView) => void;
   onOpenIngest: () => void;
   onOpenApiKey?: () => void;
+  onOpenGoogleDrive?: () => void;
   onImportPackage?: (file: File) => Promise<void>;
   fontScale?: number;
   onIncreaseFont?: () => void;
@@ -29,6 +30,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onChangeView,
   onOpenIngest,
   onOpenApiKey,
+  onOpenGoogleDrive,
   onImportPackage,
   fontScale = 100,
   onIncreaseFont,
@@ -158,6 +160,19 @@ export const TopBar: React.FC<TopBarProps> = ({
               (Lấy key miễn phí)
             </span>
           </button>
+
+          {/* Nút Đồng bộ Google Drive */}
+          {onOpenGoogleDrive && (
+            <button
+              type="button"
+              onClick={onOpenGoogleDrive}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
+              title="Đồng bộ đề thi và âm thanh với Google Drive cá nhân (sử dụng trên mọi thiết bị)"
+            >
+              <Cloud className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span>Google Drive</span>
+            </button>
+          )}
 
           {/* Nút Nhập gói đề thi (.lexisync) từ máy khác */}
           {onImportPackage && (

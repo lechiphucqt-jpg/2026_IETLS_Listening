@@ -18,6 +18,8 @@ import {
 import { VocabularyFlashcardView } from './components/VocabularyFlashcardView';
 import { IngestModal } from './components/IngestModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
+import { GoogleDriveModal } from './components/GoogleDriveModal';
+import { uploadTestToGoogleDrive } from './utils/googleDriveSync';
 import { safeParseJsonResponse } from './utils/safeFetchJson';
 import { useDisplaySettings } from './utils/useDisplaySettings';
 import { generatePedagogicalReportClientSide } from './utils/clientGemini';
@@ -237,6 +239,8 @@ export default function App() {
   const [focusTimestampSec, setFocusTimestampSec] = useState<number | null>(null);
   const [isIngestOpen, setIsIngestOpen] = useState(false);
   const [isApiKeyOpen, setIsApiKeyOpen] = useState(false);
+  const [isGoogleDriveOpen, setIsGoogleDriveOpen] = useState(false);
+  const [isUploadingDrive, setIsUploadingDrive] = useState(false);
 
   // Answers & Exam Timer
   const [answersByTest, setAnswersByTest] = useState<Record<string, Record<number, string>>>(() =>
@@ -1259,6 +1263,55 @@ export default function App() {
     [activeTest.id]
   );
 
+  const handleSyncFromDriveSuccess = useCallback((pulledTests: ListeningTestPack[]) => {
+    setTests((prev) => {
+      const map = new Map<string, ListeningTestPack>();
+      for (const t of prev) {
+        map.set(t.id, t);
+      }
+      for (const pt of pulledTests) {
+        map.set(pt.id, pt);
+      }
+      const combined = Array.from(map.values());
+      try {
+        const custom = combined.filter((t) => !SAMPLE_ID_SET.has(t.id));
+        localStorage.setItem(CUSTOM_TESTS_STORAGE_KEY, JSON.stringify(custom));
+      } catch {
+        // ignore
+      }
+      return combined;
+    });
+    if (pulledTests.length > 0) {
+      setActiveTestId(pulledTests[0].id);
+    }
+  }, []);
+
+  const handleUploadCurrentTestToDrive = useCallback(async () => {
+    if (!activeTest) return;
+    setIsUploadingDrive(true);
+    try {
+      const audioRec = await getMediaBlob(activeTest.id, 'audio');
+      const pdfRec = await getMediaBlob(activeTest.id, 'pdf');
+      const res = await uploadTestToGoogleDrive(activeTest, audioRec?.blob, pdfRec?.blob);
+      if (res.ok) {
+        if (res.audioDriveUrl) {
+          setTests((prev) =>
+            prev.map((t) =>
+              t.id === activeTest.id ? { ...t, audioUrl: res.audioDriveUrl } : t
+            )
+          );
+        }
+        alert(`Đã lưu "${activeTest.title}" và âm thanh lên Google Drive thành công!`);
+      } else {
+        alert(`Lỗi khi lưu lên Google Drive: ${res.error || 'Vui lòng kiểm tra lại URL Web App'}`);
+      }
+    } catch (err) {
+      alert(`Lỗi khi tải lên Google Drive: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsUploadingDrive(false);
+    }
+  }, [activeTest]);
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col">
       {/* Hidden native audio element for real WAV/MP3 playback */}
@@ -1271,6 +1324,7 @@ export default function App() {
         onChangeView={setActiveView}
         onOpenIngest={() => setIsIngestOpen(true)}
         onOpenApiKey={() => setIsApiKeyOpen(true)}
+        onOpenGoogleDrive={() => setIsGoogleDriveOpen(true)}
         onImportPackage={handleImportPackage}
         fontScale={fontScale}
         onIncreaseFont={increaseFont}
@@ -1427,6 +1481,15 @@ export default function App() {
       <ApiKeyModal
         isOpen={isApiKeyOpen}
         onClose={() => setIsApiKeyOpen(false)}
+      />
+
+      <GoogleDriveModal
+        isOpen={isGoogleDriveOpen}
+        onClose={() => setIsGoogleDriveOpen(false)}
+        activeTestPack={activeTest}
+        onUploadCurrentTest={handleUploadCurrentTestToDrive}
+        isUploadingCurrentTest={isUploadingDrive}
+        onSyncTestsSuccess={handleSyncFromDriveSuccess}
       />
     </div>
   );

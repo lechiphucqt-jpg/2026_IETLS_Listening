@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { ExternalLink, FileAudio, FileText, Key, Loader2, Upload, X } from 'lucide-react';
+import { Cloud, ExternalLink, FileAudio, FileText, Key, Loader2, Upload, X } from 'lucide-react';
 import type { ListeningTestPack } from '../types/ielts';
 import { extractErrorMessage, safeParseJsonResponse } from '../utils/safeFetchJson';
 import { processIngestClientSide } from '../utils/clientGemini';
 import { saveMediaBlob } from '../utils/indexedDBStorage';
+import {
+  getGoogleDriveWebhookUrl,
+  toGoogleDriveDirectStreamUrl,
+  uploadTestToGoogleDrive,
+} from '../utils/googleDriveSync';
 
 interface IngestModalProps {
   isOpen: boolean;
@@ -31,6 +36,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
   const [partLabel, setPartLabel] = useState('Part 2');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+  const [gdriveAudioUrl, setGdriveAudioUrl] = useState('');
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [rawText, setRawText] = useState('');
   const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('GEMINI_API_KEY') || '');
@@ -63,9 +69,26 @@ export const IngestModal: React.FC<IngestModalProps> = ({
     e.preventDefault();
     setErrorMsg(null);
 
-    if (!audioFile && !pdfFile && !rawText.trim()) {
+    let activeAudioFile = audioFile;
+    if (!activeAudioFile && gdriveAudioUrl.trim()) {
+      try {
+        setProgressLabel('Đang kết nối & tải file âm thanh từ Google Drive...');
+        const streamUrl = toGoogleDriveDirectStreamUrl(gdriveAudioUrl.trim());
+        const gRes = await fetch(streamUrl);
+        if (gRes.ok) {
+          const gBlob = await gRes.blob();
+          activeAudioFile = new File([gBlob], `${title || 'gdrive_audio'}.mp3`, {
+            type: gBlob.type || 'audio/mpeg',
+          });
+        }
+      } catch (gErr) {
+        console.warn('[IngestModal] Could not fetch audio directly from Google Drive:', gErr);
+      }
+    }
+
+    if (!activeAudioFile && !pdfFile && !rawText.trim()) {
       setErrorMsg(
-        'Vui lòng tải lên tệp Audio (MP3/WAV), tệp PDF đề thi, hoặc dán văn bản script/câu hỏi.'
+        'Vui lòng tải lên tệp Audio (MP3/WAV), dán link Google Drive, tải PDF đề thi hoặc dán văn bản script/câu hỏi.'
       );
       return;
     }
@@ -84,7 +107,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
       // ignore
     }
 
-    const totalBytes = (audioFile?.size || 0) + (pdfFile?.size || 0);
+    const totalBytes = (activeAudioFile?.size || 0) + (pdfFile?.size || 0);
     if (totalBytes > 30 * 1024 * 1024) {
       setErrorMsg(
         `Tổng dung lượng Audio + PDF (${(totalBytes / (1024 * 1024)).toFixed(1)} MB) vượt quá giới hạn truyền tải 30 MB của máy chủ. Vui lòng nén nhẹ file Audio hoặc tách từng Part.`
@@ -109,7 +132,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
         setProgressLabel('Đang đọc tệp & kết nối Gemini AI trực tiếp từ trình duyệt...');
         setProgressPercent(15);
         finalPack = await processIngestClientSide({
-          audioFile,
+          audioFile: activeAudioFile,
           pdfFile,
           rawText,
           title,
@@ -128,7 +151,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
           formData.append('partLabel', partLabel);
           formData.append('rawText', rawText);
           if (apiKey) formData.append('apiKey', apiKey);
-          if (audioFile) formData.append('audio', audioFile);
+          if (activeAudioFile) formData.append('audio', activeAudioFile);
           if (pdfFile) formData.append('pdf', pdfFile);
 
           const startRes = await fetch('/api/ielts/ingest/start', {
@@ -203,7 +226,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
           setProgressLabel('Đang xử lý trực tiếp bằng Gemini AI qua trình duyệt...');
           setProgressPercent(15);
           finalPack = await processIngestClientSide({
-            audioFile,
+            audioFile: activeAudioFile,
             pdfFile,
             rawText,
             title,
@@ -224,14 +247,16 @@ export const IngestModal: React.FC<IngestModalProps> = ({
       }
 
       // Ensure media is permanently saved to IndexedDB regardless of server/client ingest
-      if (audioFile && finalPack) {
+      if (activeAudioFile && finalPack) {
         try {
-          const liveAudioUrl = await saveMediaBlob(finalPack.id, 'audio', audioFile, audioFile.name);
+          const liveAudioUrl = await saveMediaBlob(finalPack.id, 'audio', activeAudioFile, activeAudioFile.name);
           finalPack.audioUrl = liveAudioUrl;
-          finalPack.audioFileName = audioFile.name;
+          finalPack.audioFileName = activeAudioFile.name;
         } catch (saveErr) {
           console.warn('[IngestModal] Failed to persist audio to IndexedDB:', saveErr);
         }
+      } else if (gdriveAudioUrl.trim() && finalPack && !finalPack.audioUrl) {
+        finalPack.audioUrl = toGoogleDriveDirectStreamUrl(gdriveAudioUrl.trim());
       }
 
       if (pdfFile && finalPack) {
@@ -244,9 +269,21 @@ export const IngestModal: React.FC<IngestModalProps> = ({
         }
       }
 
+      // Automatically back up to personal Google Drive if Webhook is configured
+      if (getGoogleDriveWebhookUrl()) {
+        uploadTestToGoogleDrive(finalPack, activeAudioFile || undefined, pdfFile || undefined)
+          .then((res) => {
+            if (res.ok) {
+              console.log('[GoogleDrive] Auto-saved test to Drive:', res);
+            }
+          })
+          .catch(() => {});
+      }
+
       onIngestSuccess(finalPack);
       setTitle('');
       setAudioFile(null);
+      setGdriveAudioUrl('');
       setPdfFile(null);
       setRawText('');
       onClose();
@@ -441,6 +478,28 @@ export const IngestModal: React.FC<IngestModalProps> = ({
                 />
               </label>
             </div>
+          </div>
+
+          {/* Dán link Audio từ Google Drive */}
+          <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1.5">
+            <label
+              htmlFor="ingest-gdrive-link"
+              className="text-xs font-semibold text-blue-900 flex items-center gap-1.5"
+            >
+              <Cloud className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              Hoặc dán đường link tệp Audio từ Google Drive
+            </label>
+            <input
+              id="ingest-gdrive-link"
+              type="url"
+              placeholder="https://drive.google.com/file/d/.../view?usp=sharing"
+              value={gdriveAudioUrl}
+              onChange={(e) => setGdriveAudioUrl(e.target.value)}
+              className="w-full px-3 py-1.5 text-xs bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+            />
+            <p className="text-[11px] text-blue-700/80">
+              Hỗ trợ link Google Drive chia sẻ công khai ("Bất kỳ ai có đường liên kết"). Hệ thống tự động chuyển sang link phát trực tiếp.
+            </p>
           </div>
 
           <div>
