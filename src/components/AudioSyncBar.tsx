@@ -394,14 +394,6 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
                 Xuất đề (.lexisync)
               </button>
             )}
-                <Share2 className="w-3.5 h-3.5 text-purple-700" aria-hidden="true" />
-                Xuất đề (.lexisync)
-              </button>
-            )}
-                <Share2 className="w-3.5 h-3.5 text-purple-600" aria-hidden="true" />
-                Xuất gói đề (.lexisync)
-              </button>
-            )}
 
             {testPack.isCustomUpload && onDeleteTest && (
               <button
