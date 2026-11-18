@@ -738,27 +738,63 @@ Trả về DUY NHẤT một JSON hợp lệ (không kèm bất kỳ văn bản n
   });
 
   // Final classroom drills
-  const finalDrills: ClassroomDrillSentence[] = (parsedExam.classroomDrills || []).map((d, idx) => {
-    const startSec = Number.isFinite(d.startSec) ? Number(d.startSec) : idx * 10;
-    const endSec = Number.isFinite(d.endSec) && Number(d.endSec) > startSec ? Number(d.endSec) : startSec + 8;
-    return {
-      id: d.id || `drill_${idx + 1}`,
-      order: d.order || idx + 1,
-      speaker: d.speaker || 'Speaker',
-      sentence: d.sentence || '',
-      translationVi: d.translationVi || '',
-      startSec,
-      endSec,
-      timestampLabel: formatTimestampLabel(startSec),
-      selectionReasonVi: d.selectionReasonVi || 'Câu quan trọng chứa đáp án và từ vựng học thuật',
-      stressPattern: d.stressPattern || '',
-      connectedSpeechNote: d.connectedSpeechNote || '',
-      keyWords: Array.isArray(d.keyWords) ? d.keyWords : [],
-    };
-  });
+  let finalDrills: ClassroomDrillSentence[] = (parsedExam.classroomDrills || [])
+    .map((d, idx) => {
+      const startSec = Number.isFinite(d.startSec) ? Number(d.startSec) : idx * 10;
+      const endSec = Number.isFinite(d.endSec) && Number(d.endSec) > startSec ? Number(d.endSec) : startSec + 8;
+      return {
+        id: d.id || `drill_${idx + 1}`,
+        order: d.order || idx + 1,
+        speaker: d.speaker || 'Speaker',
+        sentence: (d.sentence || '').trim(),
+        translationVi: d.translationVi || 'Dịch nghĩa câu luyện nghe IELTS.',
+        startSec,
+        endSec,
+        timestampLabel: formatTimestampLabel(startSec),
+        selectionReasonVi: d.selectionReasonVi || 'Câu quan trọng chứa đáp án và từ vựng học thuật',
+        stressPattern: d.stressPattern || '',
+        connectedSpeechNote: d.connectedSpeechNote || '',
+        keyWords: Array.isArray(d.keyWords) ? d.keyWords : [],
+      };
+    })
+    .filter((d) => d.sentence.length > 5);
 
   const durationSec =
     finalSegments.length > 0 ? Math.max(...finalSegments.map((s) => s.endSec), 120) : 180;
+
+  // Guarantee at least 10–12 drill sentences for Dictation & Shadowing
+  if (finalDrills.length < 10) {
+    const provisionalPack: ListeningTestPack = {
+      id: `prov_${Date.now()}`,
+      title: parsedExam.title || title || 'IELTS Listening Custom Test',
+      partLabel: parsedExam.partLabel || partLabel || 'Part 2',
+      topic: parsedExam.topic || 'IELTS Listening Practice',
+      bandTarget: parsedExam.bandTarget || 'Band 6.5 – 8.0',
+      durationSec,
+      questions: finalQuestions,
+      segments: finalSegments,
+      vocabulary: finalVocab,
+      intensiveDrills: [],
+      rawText: rawText || transcribedText,
+    };
+    const extraDrills = fallbackAlgorithmicDrills(provisionalPack, 12);
+    if (finalDrills.length === 0) {
+      finalDrills = extraDrills;
+    } else {
+      const existingSentences = new Set(finalDrills.map((d) => d.sentence.toLowerCase().trim()));
+      for (const extra of extraDrills) {
+        if (!existingSentences.has(extra.sentence.toLowerCase().trim())) {
+          existingSentences.add(extra.sentence.toLowerCase().trim());
+          finalDrills.push({
+            ...extra,
+            id: `drill_${finalDrills.length + 1}`,
+            order: finalDrills.length + 1,
+          });
+        }
+        if (finalDrills.length >= 12) break;
+      }
+    }
+  }
 
   onProgress?.('Hoàn tất tạo phòng thi và đồng bộ câu hỏi!', 100);
 
@@ -1313,6 +1349,25 @@ Trả về JSON:
         });
 
         if (drills.length > 0) {
+          if (drills.length < desiredCount) {
+            const algorithmic = fallbackAlgorithmicDrills(
+              { ...testPack, segments: granularSegments.length > 0 ? granularSegments : testPack.segments },
+              desiredCount
+            );
+            const existingSentences = new Set(drills.map((d) => d.sentence.toLowerCase().trim()));
+            for (const extra of algorithmic) {
+              if (!existingSentences.has(extra.sentence.toLowerCase().trim())) {
+                existingSentences.add(extra.sentence.toLowerCase().trim());
+                drills.push({
+                  ...extra,
+                  id: `drill_${Date.now()}_${drills.length + 1}`,
+                  order: drills.length + 1,
+                });
+              }
+              if (drills.length >= desiredCount) break;
+            }
+          }
+
           return {
             classroomDrills: drills,
             updatedSegments: granularSegments.length > 0 ? granularSegments : undefined,

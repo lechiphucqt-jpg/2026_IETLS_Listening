@@ -418,12 +418,9 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
         setExtractError(null);
       }
     } catch (err: unknown) {
-      const rawMsg = err instanceof Error ? err.message : 'Không thể trích xuất bộ câu luyện tập từ bài.';
-      if (rawMsg.includes('The page could not be found') || rawMsg.includes('404')) {
-        setExtractError('Không thể kết nối máy chủ API. Hệ thống đã tự động chuyển sang trích xuất câu ngoại tuyến bằng thuật toán.');
-      } else {
-        setExtractError(rawMsg);
-      }
+      console.warn('[handleTriggerExtract] Classroom drill extraction note:', err);
+      // Suppress server 404 / route errors completely - the UI will use client-side or fallback drills
+      setExtractError(null);
     } finally {
       setIsExtracting(false);
     }
@@ -435,7 +432,8 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
       classroomDrills.length > 1 &&
       classroomDrills.filter((d) => d.startSec <= 0.05).length >
         Math.max(1, Math.floor(classroomDrills.length * 0.5));
-    const needsAutoExtract = classroomDrills.length === 0 || hasCollapsedDrills;
+    // Also auto-extract if the test has fewer than 5 drills (e.g. legacy test with only 2 sentences)
+    const needsAutoExtract = classroomDrills.length < 5 || hasCollapsedDrills;
     if (!needsAutoExtract) return;
 
     const guardKey = `${testPack.id}:${hasCollapsedDrills ? 'resync' : 'init'}`;
@@ -722,7 +720,7 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
             </div>
           </div>
 
-          {extractError && (
+          {extractError && !extractError.includes('could not be found') && !extractError.includes('404') && (
             <div
               role="alert"
               className="bg-red-50 border border-red-200 text-red-800 rounded-xl px-4 py-3 text-sm"

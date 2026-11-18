@@ -1003,7 +1003,30 @@ export default function App() {
       let drills: ClassroomDrillSentence[] | undefined;
       let updatedSegments: ListeningTestPack['segments'] | undefined;
 
-      if (isLocalhost) {
+      // 1. If Gemini API key is configured, perform client-side AI extraction directly (safe on Vercel & client)
+      if (apiKey.trim()) {
+        try {
+          const clientRes = await extractClassroomDrillsClientSide({
+            apiKey: apiKey.trim(),
+            testPack: {
+              ...activeTest,
+              durationSec: effectiveDuration,
+            },
+            targetCount: count,
+          });
+          if (Array.isArray(clientRes.classroomDrills) && clientRes.classroomDrills.length > 0) {
+            drills = clientRes.classroomDrills;
+            if (clientRes.updatedSegments && clientRes.updatedSegments.length > 0) {
+              updatedSegments = clientRes.updatedSegments;
+            }
+          }
+        } catch (clientErr) {
+          console.warn('[handleExtractClassroomDrills] Client extraction note:', clientErr);
+        }
+      }
+
+      // 2. Only if still empty and on localhost with server, probe local API safely
+      if ((!drills || drills.length === 0) && isLocalhost) {
         try {
           const res = await fetch('/api/ielts/extract-classroom-drills', {
             method: 'POST',
@@ -1018,39 +1041,20 @@ export default function App() {
             }),
           });
           if (res.ok) {
-            const data = await safeParseJsonResponse<{
-              classroomDrills?: ClassroomDrillSentence[];
-              updatedSegments?: ListeningTestPack['segments'];
-              error?: string;
-            }>(res, 'Máy chủ trả về phản hồi không hợp lệ khi trích xuất câu.');
-            if (Array.isArray(data.classroomDrills) && data.classroomDrills.length > 0) {
+            const data = await res.json().catch(() => null);
+            if (data && Array.isArray(data.classroomDrills) && data.classroomDrills.length > 0) {
               drills = data.classroomDrills;
-              updatedSegments =
-                Array.isArray(data.updatedSegments) && data.updatedSegments.length > 0
-                  ? data.updatedSegments
-                  : undefined;
+              if (Array.isArray(data.updatedSegments) && data.updatedSegments.length > 0) {
+                updatedSegments = data.updatedSegments;
+              }
             }
           }
         } catch {
-          // Fallback to client-side
+          // Silently fall through to algorithmic fallback
         }
       }
 
-      if (!drills || drills.length === 0) {
-        const clientRes = await extractClassroomDrillsClientSide({
-          apiKey,
-          testPack: {
-            ...activeTest,
-            durationSec: effectiveDuration,
-          },
-          targetCount: count,
-        });
-        drills = clientRes.classroomDrills;
-        if (clientRes.updatedSegments && clientRes.updatedSegments.length > 0) {
-          updatedSegments = clientRes.updatedSegments;
-        }
-      }
-
+      // 3. Guaranteed high-quality algorithmic drill extraction if still needed or fewer than target
       if (!drills || drills.length === 0) {
         drills = fallbackAlgorithmicDrills(activeTest, count);
       }
@@ -1082,7 +1086,20 @@ export default function App() {
 
     let questions: ListeningTestPack['questions'] | undefined;
 
-    if (isLocalhost) {
+    // 1. If API key provided, use direct client-side OCR extraction
+    if (apiKey.trim()) {
+      try {
+        questions = await generateQuestionsClientSide({
+          apiKey: apiKey.trim(),
+          testPack: activeTest,
+        });
+      } catch (err) {
+        console.warn('[handleRegenerateQuestions] Client OCR note:', err);
+      }
+    }
+
+    // 2. Localhost fallback
+    if ((!questions || questions.length === 0) && isLocalhost) {
       try {
         const res = await fetch('/api/ielts/generate-questions', {
           method: 'POST',
@@ -1091,16 +1108,13 @@ export default function App() {
           body: JSON.stringify({ testPack: activeTest }),
         });
         if (res.ok) {
-          const data = await safeParseJsonResponse<{
-            questions?: ListeningTestPack['questions'];
-            error?: string;
-          }>(res, 'Không thể tạo bộ câu hỏi từ bài nghe.');
-          if (Array.isArray(data.questions) && data.questions.length > 0) {
+          const data = await res.json().catch(() => null);
+          if (data && Array.isArray(data.questions) && data.questions.length > 0) {
             questions = data.questions;
           }
         }
       } catch {
-        // Fallback to client-side
+        // Fallback
       }
     }
 
