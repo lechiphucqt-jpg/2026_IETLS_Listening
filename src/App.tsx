@@ -19,6 +19,7 @@ import { VocabularyFlashcardView } from './components/VocabularyFlashcardView';
 import { IngestModal } from './components/IngestModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { GoogleDriveModal } from './components/GoogleDriveModal';
+import { LocalFilesManagerModal } from './components/LocalFilesManagerModal';
 import { uploadTestToGoogleDrive } from './utils/googleDriveSync';
 import { safeParseJsonResponse } from './utils/safeFetchJson';
 import { useDisplaySettings } from './utils/useDisplaySettings';
@@ -240,6 +241,7 @@ export default function App() {
   const [isIngestOpen, setIsIngestOpen] = useState(false);
   const [isApiKeyOpen, setIsApiKeyOpen] = useState(false);
   const [isGoogleDriveOpen, setIsGoogleDriveOpen] = useState(false);
+  const [isLocalFilesOpen, setIsLocalFilesOpen] = useState(false);
   const [isUploadingDrive, setIsUploadingDrive] = useState(false);
 
   // Answers & Exam Timer
@@ -1313,7 +1315,7 @@ export default function App() {
   }, [activeTest]);
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col">
+    <div className="min-h-screen bg-gradient-to-b from-[#eaf4ff] via-[#f0f7ff] to-[#e8f2fe] text-slate-900 flex flex-col font-sans">
       {/* Hidden native audio element for real WAV/MP3 playback */}
       {activeTest.audioUrl && (
         <audio ref={audioRef} src={activeTest.audioUrl} preload="auto" />
@@ -1325,6 +1327,7 @@ export default function App() {
         onOpenIngest={() => setIsIngestOpen(true)}
         onOpenApiKey={() => setIsApiKeyOpen(true)}
         onOpenGoogleDrive={() => setIsGoogleDriveOpen(true)}
+        onOpenLocalFiles={() => setIsLocalFilesOpen(true)}
         onImportPackage={handleImportPackage}
         fontScale={fontScale}
         onIncreaseFont={increaseFont}
@@ -1339,6 +1342,7 @@ export default function App() {
         allTests={tests}
         onSelectTest={(id) => setActiveTestId(id)}
         onDeleteTest={handleDeleteCustomTest}
+        onOpenLocalFiles={() => setIsLocalFilesOpen(true)}
         audioRef={audioRef}
         currentTime={currentTime}
         duration={duration}
@@ -1490,6 +1494,15 @@ export default function App() {
         onUploadCurrentTest={handleUploadCurrentTestToDrive}
         isUploadingCurrentTest={isUploadingDrive}
         onSyncTestsSuccess={handleSyncFromDriveSuccess}
+      />
+
+      <LocalFilesManagerModal
+        isOpen={isLocalFilesOpen}
+        onClose={() => setIsLocalFilesOpen(false)}
+        activeTestPack={activeTest}
+        allTests={tests}
+        onSelectTest={(id) => setActiveTestId(id)}
+        onPlayAudio={(sec) => seekAndPlay(sec, null)}
       />
     </div>
   );

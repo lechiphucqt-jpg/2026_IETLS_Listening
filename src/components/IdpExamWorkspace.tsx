@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Download,
   Eye,
   EyeOff,
   FileDown,
@@ -391,28 +392,53 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
       {/* Two-Zone Sandbox Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Zone: Interactive IDP Question Paper */}
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-2">
+        <div className="lg:col-span-7 bg-white border-2 border-blue-200/90 rounded-2xl overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b-2 border-blue-100 bg-gradient-to-r from-blue-50/80 via-sky-50/50 to-indigo-50/40 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-bold text-slate-900">
+              <h2 className="text-base font-extrabold text-blue-950">
                 Phiếu câu hỏi ({testPack.questions.length} câu)
               </h2>
-              <span className="text-xs text-slate-500">
+              <span className="text-xs font-semibold text-slate-600">
                 Nhập đáp án hoặc bấm “Đáp án & Giải thích” ở từng câu để xem lời giải chi tiết
               </span>
             </div>
 
-            {testPack.pdfUrl && (
-              <a
-                href={testPack.pdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg whitespace-nowrap shrink-0"
-              >
-                <FileText className="w-3.5 h-3.5" aria-hidden="true" />
-                {testPack.pdfFileName ? `Xem PDF: ${testPack.pdfFileName}` : 'Xem đề PDF đã lưu'}
-              </a>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {testPack.pdfUrl && (
+                <>
+                  <a
+                    href={testPack.pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-800 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg whitespace-nowrap shrink-0 shadow-xs transition-colors"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-red-600" aria-hidden="true" />
+                    <span>Xem PDF</span>
+                  </a>
+                  <a
+                    href={testPack.pdfUrl}
+                    download={testPack.pdfFileName || `${testPack.id}.pdf`}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg whitespace-nowrap shrink-0 shadow-xs transition-colors"
+                    title="Tải tệp PDF đề thi về máy tính"
+                  >
+                    <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Tải PDF về máy</span>
+                  </a>
+                </>
+              )}
+
+              {testPack.audioUrl && (
+                <a
+                  href={testPack.audioUrl}
+                  download={testPack.audioFileName || `${testPack.id}.mp3`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg whitespace-nowrap shrink-0 shadow-xs transition-colors"
+                  title="Tải tệp âm thanh về máy tính (.mp3)"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-700" aria-hidden="true" />
+                  <span>Tải Audio</span>
+                </a>
+              )}
+            </div>
           </div>
 
           <div className="divide-y divide-slate-200">
@@ -738,20 +764,20 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
         </div>
 
         {/* Right Zone: Click-to-Hear Synchronized Transcript & Contextual Translator */}
-        <aside className="lg:col-span-5 bg-white border border-slate-200 rounded-xl overflow-hidden lg:sticky lg:top-20">
-          <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between gap-3">
+        <aside className="lg:col-span-5 bg-white border-2 border-blue-200/90 rounded-2xl overflow-hidden shadow-sm lg:sticky lg:top-20">
+          <div className="px-5 py-3.5 border-b-2 border-blue-100 bg-gradient-to-r from-blue-50/80 via-sky-50/50 to-indigo-50/40 flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-bold text-slate-900">
+              <h2 className="text-sm font-extrabold text-blue-950">
                 Transcript Đồng bộ (Click-to-Hear)
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs font-semibold text-slate-600 mt-0.5">
                 Nhấp vào đoạn thoại để nghe · Nhấp từ gạch chân để xem nghĩa theo bài
               </p>
             </div>
             <button
               type="button"
               onClick={() => setShowTranscript((prev) => !prev)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
             >
               {showTranscript ? (
                 <>

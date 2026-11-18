@@ -523,10 +523,10 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
       {/* Studio Header & Mode Segmented Switch */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-medium text-slate-500">
+          <p className="text-xs font-bold text-blue-800">
             Luyện tập Chuyên sâu · {testPack.partLabel} · {testPack.title}
           </p>
-          <h1 className="text-2xl font-bold text-slate-900 mt-1 text-balance">
+          <h1 className="text-2xl font-extrabold text-blue-950 mt-1 text-balance">
             {activeTab === 'classroom'
               ? 'Dictation & Shadowing Lớp học (10–15 câu đắt giá nhất)'
               : activeTab === 'intensive'
@@ -538,17 +538,17 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
         <div
           role="tablist"
           aria-label="Chế độ luyện tập chuyên sâu"
-          className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg overflow-x-auto"
+          className="flex items-center gap-1 p-1 bg-blue-50 border border-blue-200 rounded-xl overflow-x-auto shadow-xs"
         >
           <button
             type="button"
             role="tab"
             aria-selected={activeTab === 'classroom'}
             onClick={() => setActiveTab('classroom')}
-            className={`px-3.5 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`px-3.5 py-2 text-xs rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               activeTab === 'classroom'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-700 text-white font-extrabold shadow-xs'
+                : 'text-slate-700 hover:text-blue-900 font-bold'
             }`}
           >
             Dictation & Shadowing ({classroomDrills.length})
@@ -558,10 +558,10 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
             role="tab"
             aria-selected={activeTab === 'intensive'}
             onClick={() => setActiveTab('intensive')}
-            className={`px-3.5 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`px-3.5 py-2 text-xs rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               activeTab === 'intensive'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-700 text-white font-extrabold shadow-xs'
+                : 'text-slate-700 hover:text-blue-900 font-bold'
             }`}
           >
             Intensive Listening
@@ -571,10 +571,10 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
             role="tab"
             aria-selected={activeTab === 'shadowing'}
             onClick={() => setActiveTab('shadowing')}
-            className={`px-3.5 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`px-3.5 py-2 text-xs rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               activeTab === 'shadowing'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-blue-700 text-white font-extrabold shadow-xs'
+                : 'text-slate-700 hover:text-blue-900 font-bold'
             }`}
           >
             Shadowing Studio

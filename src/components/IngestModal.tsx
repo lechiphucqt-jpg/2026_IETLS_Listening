@@ -3,7 +3,7 @@ import { Cloud, ExternalLink, FileAudio, FileText, Key, Loader2, Upload, X } fro
 import type { ListeningTestPack } from '../types/ielts';
 import { extractErrorMessage, safeParseJsonResponse } from '../utils/safeFetchJson';
 import { processIngestClientSide } from '../utils/clientGemini';
-import { saveMediaBlob } from '../utils/indexedDBStorage';
+import { downloadBlob, saveMediaBlob } from '../utils/indexedDBStorage';
 import {
   getGoogleDriveWebhookUrl,
   toGoogleDriveDirectStreamUrl,
@@ -40,6 +40,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [rawText, setRawText] = useState('');
   const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('GEMINI_API_KEY') || '');
+  const [autoSaveToComputer, setAutoSaveToComputer] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [progressLabel, setProgressLabel] = useState('Đang tải tệp lên máy chủ...');
   const [progressPercent, setProgressPercent] = useState(10);
@@ -266,6 +267,32 @@ export const IngestModal: React.FC<IngestModalProps> = ({
           finalPack.pdfFileName = pdfFile.name;
         } catch (saveErr) {
           console.warn('[IngestModal] Failed to persist PDF to IndexedDB:', saveErr);
+        }
+      }
+
+      // Feature: Automatically save uploaded Audio & PDF files to local computer (Downloads folder)
+      if (autoSaveToComputer) {
+        if (activeAudioFile) {
+          try {
+            downloadBlob(
+              activeAudioFile,
+              activeAudioFile.name || `${finalPack.title || 'ielts_listening'}.mp3`
+            );
+          } catch (dlErr) {
+            console.warn('[IngestModal] Could not trigger auto-download for audio:', dlErr);
+          }
+        }
+        if (pdfFile) {
+          setTimeout(() => {
+            try {
+              downloadBlob(
+                pdfFile,
+                pdfFile.name || `${finalPack.title || 'ielts_exam'}.pdf`
+              );
+            } catch (dlErr) {
+              console.warn('[IngestModal] Could not trigger auto-download for pdf:', dlErr);
+            }
+          }, 350);
         }
       }
 
@@ -565,6 +592,26 @@ export const IngestModal: React.FC<IngestModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Feature: Tự động lưu toàn bộ file Audio & PDF vào máy tính */}
+          <div className="p-3.5 bg-blue-50/80 border-2 border-blue-200 rounded-xl flex items-center justify-between gap-3 shadow-xs">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={autoSaveToComputer}
+                onChange={(e) => setAutoSaveToComputer(e.target.checked)}
+                className="w-4 h-4 text-blue-700 rounded border-blue-300 focus:ring-blue-600 cursor-pointer"
+              />
+              <div>
+                <span className="text-xs font-extrabold text-blue-950 block">
+                  Tự động lưu toàn bộ file Audio & PDF vào máy tính (Local Computer)
+                </span>
+                <span className="text-[11px] font-semibold text-blue-800/80 block">
+                  Lưu file gốc vào máy tính để bảo quản vĩnh viễn, không lo mất file khi học offline
+                </span>
+              </div>
+            </label>
+          </div>
 
           <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-200">
             <button

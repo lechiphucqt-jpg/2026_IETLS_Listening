@@ -190,21 +190,21 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
       {/* Header + Lesson Selector + Scope & Status Filters */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-2">
-          <p className="text-xs font-medium text-slate-500">
+          <p className="text-xs font-bold text-blue-800">
             Từ vựng đi theo từng bài nghe · Tự dịch tiếng Việt sát ngữ cảnh bài
           </p>
-          <h1 className="text-2xl font-bold text-slate-900">
+          <h1 className="text-2xl font-extrabold text-blue-950">
             Kho từ vựng theo bài & Flashcards
           </h1>
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <label htmlFor="vocab-lesson-select" className="text-xs font-semibold text-slate-600">
+            <label htmlFor="vocab-lesson-select" className="text-xs font-bold text-slate-700">
               Bài nghe đang học:
             </label>
             <select
               id="vocab-lesson-select"
               value={testPack.id}
               onChange={(e) => onSelectTest(e.target.value)}
-              className="text-xs font-medium text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-700"
+              className="text-xs font-bold text-blue-950 bg-blue-50/80 border border-blue-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-700 shadow-xs"
             >
               {allTests.map((t) => (
                 <option key={t.id} value={t.id}>

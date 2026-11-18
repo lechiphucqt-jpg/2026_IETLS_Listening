@@ -292,7 +292,7 @@ export function base64ToBlob(base64: string, mimeType: string): Blob {
 /**
  * Trigger browser file download for a Blob
  */
-function downloadBlob(blob: Blob, fileName: string) {
+export function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -301,6 +301,104 @@ function downloadBlob(blob: Blob, fileName: string) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * Download a stored Audio or PDF directly to the user's local computer
+ */
+export async function downloadMediaFile(
+  testId: string,
+  type: 'audio' | 'pdf',
+  fallbackFileName?: string
+): Promise<boolean> {
+  try {
+    const record = await getMediaBlob(testId, type);
+    if (record?.blob) {
+      const fileName =
+        record.fileName ||
+        fallbackFileName ||
+        (type === 'audio' ? `${testId}.mp3` : `${testId}.pdf`);
+      downloadBlob(record.blob, fileName);
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.warn(`[Download] Could not download ${type} for test ${testId}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Download both Audio and PDF for a test to the local computer
+ */
+export async function downloadAllMediaForTest(
+  testPack: ListeningTestPack
+): Promise<{ audioDownloaded: boolean; pdfDownloaded: boolean }> {
+  let audioDownloaded = false;
+  let pdfDownloaded = false;
+
+  // 1. Audio
+  try {
+    const audioRec = await getMediaBlob(testPack.id, 'audio');
+    if (audioRec?.blob) {
+      const name = audioRec.fileName || testPack.audioFileName || `${testPack.title || testPack.id}.mp3`;
+      downloadBlob(audioRec.blob, name);
+      audioDownloaded = true;
+    } else if (testPack.audioUrl) {
+      const res = await fetch(testPack.audioUrl);
+      if (res.ok) {
+        const blob = await res.blob();
+        const name = testPack.audioFileName || `${testPack.title || testPack.id}.mp3`;
+        downloadBlob(blob, name);
+        audioDownloaded = true;
+      }
+    }
+  } catch (err) {
+    console.warn('[Download] Error downloading audio:', err);
+  }
+
+  // Small delay so browser handles multiple downloads cleanly
+  await new Promise((r) => setTimeout(r, 350));
+
+  // 2. PDF
+  try {
+    const pdfRec = await getMediaBlob(testPack.id, 'pdf');
+    if (pdfRec?.blob) {
+      const name = pdfRec.fileName || testPack.pdfFileName || `${testPack.title || testPack.id}.pdf`;
+      downloadBlob(pdfRec.blob, name);
+      pdfDownloaded = true;
+    } else if (testPack.pdfUrl) {
+      const res = await fetch(testPack.pdfUrl);
+      if (res.ok) {
+        const blob = await res.blob();
+        const name = testPack.pdfFileName || `${testPack.title || testPack.id}.pdf`;
+        downloadBlob(blob, name);
+        pdfDownloaded = true;
+      }
+    }
+  } catch (err) {
+    console.warn('[Download] Error downloading PDF:', err);
+  }
+
+  return { audioDownloaded, pdfDownloaded };
+}
+
+/**
+ * Retrieve all stored media records currently in IndexedDB
+ */
+export async function getAllStoredMediaRecords(): Promise<StoredMediaRecord[]> {
+  try {
+    const db = await openMediaDatabase();
+    return await new Promise<StoredMediaRecord[]>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.getAll();
+      req.onsuccess = () => resolve((req.result as StoredMediaRecord[]) || []);
+      req.onerror = () => reject(req.error || new Error('Failed to fetch media records.'));
+    });
+  } catch {
+    return [];
+  }
 }
 
 /**

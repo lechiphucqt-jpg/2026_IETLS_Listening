@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { exec } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -134,8 +135,15 @@ const AUDIO_DIR = path.join(DATA_DIR, 'audio');
 const PDF_DIR = path.join(DATA_DIR, 'pdfs');
 const TESTS_DB_PATH = path.join(DATA_DIR, 'tests.json');
 
+// Dedicated user-accessible Local Computer Storage folder
+const LOCAL_STORAGE_DIR = path.resolve(__dirname, 'local_storage');
+const LOCAL_AUDIO_DIR = path.join(LOCAL_STORAGE_DIR, 'audio');
+const LOCAL_PDF_DIR = path.join(LOCAL_STORAGE_DIR, 'pdfs');
+
 fs.mkdirSync(AUDIO_DIR, { recursive: true });
 fs.mkdirSync(PDF_DIR, { recursive: true });
+fs.mkdirSync(LOCAL_AUDIO_DIR, { recursive: true });
+fs.mkdirSync(LOCAL_PDF_DIR, { recursive: true });
 
 interface StoredAudio {
   buffer: Buffer;
@@ -169,6 +177,15 @@ function saveAudioBuffer(buffer: Buffer, mimeType: string, originalName?: string
       path.join(AUDIO_DIR, `${id}.json`),
       JSON.stringify({ mimeType, originalName, createdAt: entry.createdAt })
     );
+
+    // Persist readable audio file with proper extension to local computer disk
+    const ext = path.extname(originalName || '').toLowerCase() || (mimeType === 'audio/wav' ? '.wav' : '.mp3');
+    const baseName = (originalName ? path.basename(originalName, path.extname(originalName)) : 'audio')
+      .replace(/[^a-zA-Z0-9_\u00C0-\u1EF9 -]/g, '_')
+      .trim() || 'audio';
+    const localAudioName = `${baseName}_${id.slice(0, 8)}${ext}`;
+    fs.writeFileSync(path.join(LOCAL_AUDIO_DIR, localAudioName), buffer);
+    console.log(`[local_storage] Saved audio file to local computer: ${path.join(LOCAL_AUDIO_DIR, localAudioName)}`);
   } catch (diskErr) {
     console.warn('[storage] Failed to persist audio buffer to disk:', diskErr);
   }
@@ -216,6 +233,14 @@ function savePdfBuffer(buffer: Buffer, originalName?: string): string {
       path.join(PDF_DIR, `${id}.json`),
       JSON.stringify({ originalName: originalName || 'exam.pdf', createdAt: Date.now() })
     );
+
+    // Persist readable PDF file to local computer disk
+    const baseName = (originalName ? path.basename(originalName, path.extname(originalName)) : 'exam')
+      .replace(/[^a-zA-Z0-9_\u00C0-\u1EF9 -]/g, '_')
+      .trim() || 'exam';
+    const localPdfName = `${baseName}_${id.slice(0, 8)}.pdf`;
+    fs.writeFileSync(path.join(LOCAL_PDF_DIR, localPdfName), buffer);
+    console.log(`[local_storage] Saved PDF file to local computer: ${path.join(LOCAL_PDF_DIR, localPdfName)}`);
   } catch (diskErr) {
     console.warn('[storage] Failed to persist PDF buffer to disk:', diskErr);
   }
@@ -1191,6 +1216,87 @@ async function startServer() {
       'Content-Type': stored.mimeType,
     });
     res.end(stored.buffer);
+  });
+
+  // Open local computer storage folder directly in Windows File Explorer
+  app.post('/api/ielts/files/open-folder', (req: Request, res: Response) => {
+    try {
+      const folderPath = path.resolve(LOCAL_STORAGE_DIR);
+      if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
+      }
+      if (process.platform === 'win32') {
+        exec(`explorer.exe "${folderPath}"`);
+      } else if (process.platform === 'darwin') {
+        exec(`open "${folderPath}"`);
+      } else {
+        exec(`xdg-open "${folderPath}"`);
+      }
+      res.json({ ok: true, path: folderPath });
+    } catch (err: unknown) {
+      console.error('[local_storage] Failed to open folder:', err);
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // List all uploaded Audio and PDF files stored on local computer disk
+  app.get('/api/ielts/files/list', (req: Request, res: Response) => {
+    try {
+      const audioFiles = fs.existsSync(LOCAL_AUDIO_DIR)
+        ? fs.readdirSync(LOCAL_AUDIO_DIR).map((name) => {
+            const fullPath = path.join(LOCAL_AUDIO_DIR, name);
+            const stats = fs.statSync(fullPath);
+            return {
+              name,
+              type: 'audio',
+              size: stats.size,
+              createdAt: stats.birthtimeMs || stats.mtimeMs,
+              url: `/api/ielts/files/download/audio/${encodeURIComponent(name)}`,
+            };
+          })
+        : [];
+
+      const pdfFiles = fs.existsSync(LOCAL_PDF_DIR)
+        ? fs.readdirSync(LOCAL_PDF_DIR).map((name) => {
+            const fullPath = path.join(LOCAL_PDF_DIR, name);
+            const stats = fs.statSync(fullPath);
+            return {
+              name,
+              type: 'pdf',
+              size: stats.size,
+              createdAt: stats.birthtimeMs || stats.mtimeMs,
+              url: `/api/ielts/files/download/pdf/${encodeURIComponent(name)}`,
+            };
+          })
+        : [];
+
+      res.json({
+        ok: true,
+        localStoragePath: LOCAL_STORAGE_DIR,
+        audios: audioFiles,
+        pdfs: pdfFiles,
+      });
+    } catch (err: unknown) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Direct file download from local computer storage
+  app.get('/api/ielts/files/download/:type/:filename', (req: Request, res: Response) => {
+    const rawType = req.params.type;
+    const rawName = req.params.filename;
+    const type = Array.isArray(rawType) ? rawType[0] : rawType;
+    const filename = path.basename(Array.isArray(rawName) ? rawName[0] : rawName);
+
+    const targetDir = type === 'audio' ? LOCAL_AUDIO_DIR : LOCAL_PDF_DIR;
+    const filePath = path.join(targetDir, filename);
+
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'Không tìm thấy tệp trên máy tính.' });
+      return;
+    }
+
+    res.download(filePath, filename);
   });
 
   // Synthesize authentic IELTS WAV audio from segments using Gemini 3.8 TTS

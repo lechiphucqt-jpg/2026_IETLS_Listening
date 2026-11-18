@@ -5,6 +5,7 @@ import {
   Cloud,
   Download,
   FileText,
+  HardDrive,
   Pause,
   Play,
   RotateCcw,
@@ -21,6 +22,7 @@ interface AudioSyncBarProps {
   allTests: ListeningTestPack[];
   onSelectTest: (testId: string) => void;
   onDeleteTest?: (testId: string) => void;
+  onOpenLocalFiles?: () => void;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   currentTime: number;
   duration: number;
@@ -54,6 +56,7 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
   allTests,
   onSelectTest,
   onDeleteTest,
+  onOpenLocalFiles,
   currentTime,
   duration,
   isPlaying,
@@ -215,10 +218,10 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
   return (
     <section
       aria-label="Bộ điều khiển đồng bộ âm thanh"
-      className="bg-white border-b border-slate-200"
+      className="sticky top-16 z-20 bg-white/95 backdrop-blur-md border-b-2 border-blue-200/80 shadow-xs"
     >
-      <div className="max-w-[1400px] mx-auto px-6 py-3.5 flex flex-col gap-3">
-        {/* Top row: Test selector + metadata + Gemini TTS generator */}
+      <div className="max-w-[1400px] mx-auto px-6 py-3 flex flex-col gap-2.5">
+        {/* Top row: Test selector + metadata + Local Computer Downloads */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3 min-w-0">
             <label htmlFor="test-pack-select" className="sr-only">
@@ -228,7 +231,7 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               id="test-pack-select"
               value={testPack.id}
               onChange={(e) => onSelectTest(e.target.value)}
-              className="text-sm font-semibold text-slate-900 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 max-w-[360px] truncate cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
+              className="text-sm font-bold text-blue-950 bg-blue-50/80 border border-blue-300 rounded-lg px-3 py-1.5 max-w-[360px] truncate cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 shadow-xs"
             >
               {allTests.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -237,60 +240,76 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               ))}
             </select>
 
-            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
-              <span>{testPack.topic}</span>
-              <span aria-hidden="true">·</span>
-              <span>{testPack.bandTarget}</span>
-              <span aria-hidden="true">·</span>
-              <span className="tabular-nums">{testPack.questions.length} câu hỏi</span>
+            <div className="hidden sm:flex items-center gap-2 text-xs font-bold text-slate-700">
+              <span className="px-2 py-0.5 rounded bg-blue-100/70 text-blue-900 border border-blue-200">{testPack.topic}</span>
+              <span aria-hidden="true" className="text-slate-400">·</span>
+              <span className="px-2 py-0.5 rounded bg-indigo-100/70 text-indigo-900 border border-indigo-200">{testPack.bandTarget}</span>
+              <span aria-hidden="true" className="text-slate-400">·</span>
+              <span className="tabular-nums text-slate-900 font-extrabold">{testPack.questions.length} câu hỏi</span>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Action buttons for PDF (View + Download) */}
             {testPack.pdfUrl && (
-              <a
-                href={testPack.pdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg whitespace-nowrap shrink-0"
-              >
-                <FileText className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-                PDF đã lưu
-              </a>
+              <div className="inline-flex items-center gap-1.5">
+                <a
+                  href={testPack.pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-slate-800 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg whitespace-nowrap shrink-0 shadow-xs transition-colors"
+                  title="Mở tài liệu PDF trong tab mới"
+                >
+                  <FileText className="w-3.5 h-3.5 text-red-600" aria-hidden="true" />
+                  <span>Xem PDF</span>
+                </a>
+                <a
+                  href={testPack.pdfUrl}
+                  download={testPack.pdfFileName || `${testPack.id}.pdf`}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg whitespace-nowrap shrink-0 shadow-xs transition-colors"
+                  title="Tải tệp PDF đề thi về máy tính"
+                >
+                  <Download className="w-3.5 h-3.5 text-red-600" aria-hidden="true" />
+                  <span>Tải PDF về máy</span>
+                </a>
+              </div>
             )}
 
+            {/* Action buttons for Audio */}
             {testPack.audioUrl && !audioHasError ? (
-              <div className="inline-flex items-center gap-2">
+              <div className="inline-flex items-center gap-1.5">
                 {testPack.audioUrl.includes('drive.google.com') || testPack.audioUrl.includes('docs.google.com') ? (
                   <span
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-200"
-                    title="Audio đang phát trực tiếp từ Google Drive cá nhân, dùng được ổn định trên mọi máy tính và điện thoại"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-800 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-300"
+                    title="Audio đang phát trực tiếp từ Google Drive cá nhân"
                   >
                     <Cloud className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
-                    Audio Google Drive
+                    Drive Audio
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200">
-                    <Volume2 className="w-3.5 h-3.5" aria-hidden="true" />
-                    Audio đã lưu & đồng bộ
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-300">
+                    <Volume2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
+                    Audio đồng bộ
                   </span>
                 )}
-                {testPack.isCustomUpload && (
-                  <a
-                    href={testPack.audioUrl}
-                    download={testPack.audioFileName || `${testPack.id}.mp3`}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-md whitespace-nowrap shrink-0"
-                  >
-                    <Download className="w-3 h-3" aria-hidden="true" />
-                    Tải Audio
-                  </a>
-                )}
+
+                {/* Direct Download Audio Button to local computer */}
+                <a
+                  href={testPack.audioUrl}
+                  download={testPack.audioFileName || `${testPack.id}.mp3`}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg whitespace-nowrap shrink-0 shadow-xs transition-colors"
+                  title="Tải file âm thanh về máy tính (.mp3)"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-700" aria-hidden="true" />
+                  <span>Tải Audio về máy</span>
+                </a>
+
                 {onReattachAudio && testPack.isCustomUpload && (
                   <label
                     title="Chọn lại file audio khác từ máy tính để gắn vào đề này"
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-md whitespace-nowrap shrink-0 cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
                   >
-                    <Upload className="w-3 h-3 text-slate-500" aria-hidden="true" />
+                    <Upload className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
                     Đổi Audio
                     <input
                       type="file"
@@ -312,13 +331,13 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
             ) : (
               <div className="inline-flex items-center gap-2">
                 {audioHasError && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-300">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-900 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-300">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
                     Audio cần gắn lại
                   </span>
                 )}
                 {onReattachAudio && (
-                  <label className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg whitespace-nowrap shrink-0 cursor-pointer transition-colors shadow-xs">
+                  <label className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg whitespace-nowrap shrink-0 cursor-pointer transition-colors shadow-xs">
                     <Upload className="w-3.5 h-3.5" aria-hidden="true" />
                     Gắn lại Audio từ máy
                     <input
@@ -341,7 +360,7 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
                   type="button"
                   onClick={onSynthesizeAudio}
                   disabled={isSynthesizing}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
                 >
                   <AudioWaveform className="w-3.5 h-3.5" aria-hidden="true" />
                   {isSynthesizing
@@ -351,13 +370,30 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               </div>
             )}
 
+            {/* Quick button to open Local Files Manager Modal */}
+            {onOpenLocalFiles && (
+              <button
+                type="button"
+                onClick={onOpenLocalFiles}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-indigo-950 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg whitespace-nowrap shrink-0 shadow-xs cursor-pointer transition-colors"
+                title="Xem toàn bộ các tệp Audio & PDF đã lưu trong máy tính"
+              >
+                <HardDrive className="w-3.5 h-3.5 text-indigo-700" />
+                <span>Tệp máy tính</span>
+              </button>
+            )}
+
             {onExportPackage && (
               <button
                 type="button"
                 onClick={() => onExportPackage(testPack)}
                 title="Đóng gói đề thi kèm Audio/PDF thành file .lexisync để gửi sang máy khác dùng ngay"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-md whitespace-nowrap shrink-0 cursor-pointer shadow-xs transition-colors"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg whitespace-nowrap shrink-0 cursor-pointer shadow-xs transition-colors"
               >
+                <Share2 className="w-3.5 h-3.5 text-purple-700" aria-hidden="true" />
+                Xuất đề (.lexisync)
+              </button>
+            )}
                 <Share2 className="w-3.5 h-3.5 text-purple-600" aria-hidden="true" />
                 Xuất gói đề (.lexisync)
               </button>
@@ -411,10 +447,10 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-mono text-slate-700 shrink-0 tabular-nums">
-            <span className="font-semibold text-blue-700">[{formatMmSsXx(currentTime)}]</span>
-            <span className="text-slate-400">/</span>
-            <span>[{formatMmSsXx(effectiveDuration)}]</span>
+          <div className="flex items-center gap-1.5 text-xs font-mono shrink-0 tabular-nums bg-blue-50/90 px-2.5 py-1.5 rounded-lg border border-blue-200">
+            <span className="font-extrabold text-blue-900 text-sm">[{formatMmSsXx(currentTime)}]</span>
+            <span className="text-blue-300 font-bold">/</span>
+            <span className="font-bold text-slate-700">[{formatMmSsXx(effectiveDuration)}]</span>
           </div>
 
           <div className="flex-1 min-w-[220px] flex flex-col gap-1">
@@ -422,11 +458,11 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               ref={canvasRef}
               onClick={handleCanvasClick}
               title="Nhấp vào sóng âm để tua chính xác đến từng mili giây (vạch vàng là vị trí đáp án)"
-              className="w-full h-10 cursor-pointer rounded bg-slate-50 border border-slate-200"
+              className="w-full h-10 cursor-pointer rounded-lg bg-slate-50 border border-blue-200 shadow-inner"
             />
             {activeSegment && (
-              <div className="text-[11px] text-slate-500 truncate">
-                <span className="font-semibold text-slate-700">{activeSegment.speaker}:</span>{' '}
+              <div className="text-[11px] text-slate-600 truncate font-medium">
+                <span className="font-bold text-slate-900">{activeSegment.speaker}:</span>{' '}
                 {activeSegment.text}
               </div>
             )}
@@ -436,7 +472,7 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
           <div
             role="group"
             aria-label="Tốc độ phát âm thanh"
-            className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg shrink-0"
+            className="flex items-center gap-1 p-1 bg-blue-50/80 border border-blue-200 rounded-lg shrink-0"
           >
             {speedOptions.map((opt) => {
               const active = Math.abs(playbackRate - opt.rate) < 0.05;
@@ -445,10 +481,10 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
                   key={opt.rate}
                   type="button"
                   onClick={() => onChangeRate(opt.rate)}
-                  className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 ${
+                  className={`px-2.5 py-1.5 text-xs font-bold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 ${
                     active
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-blue-700 text-white shadow-xs'
+                      : 'text-slate-700 hover:text-blue-900 hover:bg-white/80'
                   }`}
                 >
                   {opt.label}

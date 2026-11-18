@@ -80,12 +80,12 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
   return (
     <div className="max-w-[1200px] mx-auto px-6 py-8 space-y-10">
       {/* Summary Header */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-wrap items-center justify-between gap-6">
+      <div className="bg-white border-2 border-blue-200/90 rounded-2xl p-6 flex flex-wrap items-center justify-between gap-6 shadow-sm">
         <div>
-          <p className="text-xs font-medium text-slate-500">
+          <p className="text-xs font-bold text-blue-800">
             Báo cáo Chẩn đoán Mastermind · {report.testTitle}
           </p>
-          <h1 className="text-2xl font-bold text-slate-900 mt-1 text-balance">
+          <h1 className="text-2xl font-extrabold text-blue-950 mt-1 text-balance">
             Phân tích Sư phạm & Hành vi Người học (5 Phần)
           </h1>
         </div>
@@ -93,18 +93,18 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
         <div className="flex flex-wrap items-center gap-6">
           <div className="flex items-center gap-8">
             <div>
-              <div className="text-xs text-slate-500">Điểm chính xác</div>
-              <div className="text-2xl font-bold text-slate-900 tabular-nums mt-0.5">
+              <div className="text-xs font-bold text-slate-600">Điểm chính xác</div>
+              <div className="text-3xl font-extrabold text-blue-950 tabular-nums mt-0.5">
                 {part3BehavioralInsights.correctCount}/{part3BehavioralInsights.totalCount}{' '}
-                <span className="text-base font-medium text-slate-500">
+                <span className="text-base font-bold text-slate-500">
                   ({part3BehavioralInsights.accuracyPercent}%)
                 </span>
               </div>
             </div>
-            <div className="h-10 w-px bg-slate-200" aria-hidden="true" />
+            <div className="h-10 w-px bg-blue-200" aria-hidden="true" />
             <div>
-              <div className="text-xs text-slate-500">Ước lượng trình độ</div>
-              <div className="text-2xl font-bold text-blue-700 tabular-nums mt-0.5">
+              <div className="text-xs font-bold text-slate-600">Ước lượng trình độ</div>
+              <div className="text-3xl font-extrabold text-blue-700 tabular-nums mt-0.5">
                 {part3BehavioralInsights.estimatedBand}
               </div>
             </div>
@@ -113,7 +113,7 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
           <button
             type="button"
             onClick={() => exportTeacherAnswerKeyDocx(report)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors shadow-sm cursor-pointer whitespace-nowrap"
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors shadow-sm cursor-pointer whitespace-nowrap"
             title="Xuất bảng đáp án chi tiết, phân tích bẫy và transcript ra Microsoft Word (.doc / .docx)"
           >
             <FileDown className="w-4 h-4" aria-hidden="true" />
@@ -123,12 +123,12 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
       </div>
 
       {/* Phần 1: Bảng Phân tích Đáp án (Answer Key Analysis) */}
-      <section aria-labelledby="part1-heading" className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/70">
-          <h2 id="part1-heading" className="text-base font-bold text-slate-900">
+      <section aria-labelledby="part1-heading" className="bg-white border-2 border-blue-200/90 rounded-2xl overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b-2 border-blue-100 bg-gradient-to-r from-blue-50/80 via-sky-50/50 to-indigo-50/40">
+          <h2 id="part1-heading" className="text-base font-extrabold text-blue-950">
             01. Bảng Phân tích Đáp án (Answer Key Analysis)
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs font-semibold text-slate-600 mt-0.5">
             Nhấp vào bất kỳ mốc thời gian [mm:ss.xx] nào để kích hoạt nghe lại ngay lập tức
           </p>
         </div>
@@ -136,7 +136,7 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-slate-200 text-xs font-semibold text-slate-600 bg-slate-50/40">
+              <tr className="border-b-2 border-blue-100 text-xs font-bold text-blue-950 bg-blue-50/70">
                 <th className="py-3 px-4 w-16">Câu</th>
                 <th className="py-3 px-4">Bài làm / Đáp án chuẩn</th>
                 <th className="py-3 px-4">Trạng thái</th>
@@ -202,12 +202,12 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
       </section>
 
       {/* Phần 2: Giải thích chi tiết (In-depth Explanation) */}
-      <section aria-labelledby="part2-heading" className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/70">
-          <h2 id="part2-heading" className="text-base font-bold text-slate-900">
+      <section aria-labelledby="part2-heading" className="bg-white border-2 border-blue-200/90 rounded-2xl overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b-2 border-blue-100 bg-gradient-to-r from-blue-50/80 via-sky-50/50 to-indigo-50/40">
+          <h2 id="part2-heading" className="text-base font-extrabold text-blue-950">
             02. Giải thích chi tiết (In-depth Explanation)
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs font-semibold text-slate-600 mt-0.5">
             Phân tích logic đáp án đúng, bẫy thông tin và trích dẫn nguyên văn từ Transcript
           </p>
         </div>
@@ -329,12 +329,12 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
       </section>
 
       {/* Phần 3: Báo cáo lỗi sai hệ thống (Behavioral Insights) */}
-      <section aria-labelledby="part3-heading" className="bg-white border border-slate-200 rounded-xl p-6 space-y-6">
+      <section aria-labelledby="part3-heading" className="bg-white border-2 border-blue-200/90 rounded-2xl p-6 space-y-6 shadow-sm">
         <div>
-          <h2 id="part3-heading" className="text-base font-bold text-slate-900">
+          <h2 id="part3-heading" className="text-base font-extrabold text-blue-950">
             03. Báo cáo lỗi sai hệ thống & Biểu đồ năng lực 5 chiều
           </h2>
-          <p className="text-sm text-slate-700 mt-2 leading-relaxed">
+          <p className="text-sm font-semibold text-slate-700 mt-2 leading-relaxed">
             {part3BehavioralInsights.overallDiagnosisVi}
           </p>
         </div>
@@ -373,12 +373,12 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
       </section>
 
       {/* Phần 4: Kho từ vựng (Academic Spotlight) */}
-      <section aria-labelledby="part4-heading" className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/70">
-          <h2 id="part4-heading" className="text-base font-bold text-slate-900">
+      <section aria-labelledby="part4-heading" className="bg-white border-2 border-blue-200/90 rounded-2xl overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b-2 border-blue-100 bg-gradient-to-r from-blue-50/80 via-sky-50/50 to-indigo-50/40">
+          <h2 id="part4-heading" className="text-base font-extrabold text-blue-950">
             04. Kho từ vựng (Academic Spotlight — AWL)
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs font-semibold text-slate-600 mt-0.5">
             Các từ vựng học thuật được dịch nghĩa tiếng Việt theo đúng ngữ cảnh bài nghe kèm phiên âm và câu ví dụ
           </p>
         </div>
@@ -386,7 +386,7 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-slate-200 text-xs font-semibold text-slate-600 bg-slate-50/40">
+              <tr className="border-b-2 border-blue-100 text-xs font-bold text-blue-950 bg-blue-50/70">
                 <th className="py-3 px-4">Từ vựng</th>
                 <th className="py-3 px-4">Phiên âm IPA</th>
                 <th className="py-3 px-4">Nghĩa tiếng Việt theo bài</th>
@@ -461,12 +461,12 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
       </section>
 
       {/* Phần 5: Đề xuất luyện tập (Action Plan) */}
-      <section aria-labelledby="part5-heading" className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
+      <section aria-labelledby="part5-heading" className="bg-white border-2 border-blue-200/90 rounded-2xl p-6 space-y-5 shadow-sm">
         <div>
-          <h2 id="part5-heading" className="text-base font-bold text-slate-900">
+          <h2 id="part5-heading" className="text-base font-extrabold text-blue-950">
             05. Đề xuất luyện tập (Action Plan)
           </h2>
-          <p className="text-sm text-slate-700 mt-2 leading-relaxed">
+          <p className="text-sm font-semibold text-slate-700 mt-2 leading-relaxed">
             {part5ActionPlan.summaryVi}
           </p>
         </div>
