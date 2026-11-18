@@ -1,5 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Pause, Play, RotateCcw, RotateCw, Volume2, AudioWaveform, Download, Trash2, FileText } from 'lucide-react';
+import {
+  AlertCircle,
+  AudioWaveform,
+  Download,
+  FileText,
+  Pause,
+  Play,
+  RotateCcw,
+  RotateCw,
+  Trash2,
+  Upload,
+  Volume2,
+} from 'lucide-react';
 import type { ListeningTestPack } from '../types/ielts';
 
 interface AudioSyncBarProps {
@@ -18,6 +30,8 @@ interface AudioSyncBarProps {
   onSynthesizeAudio: () => Promise<void>;
   isSynthesizing: boolean;
   ttsNotice: string | null;
+  onReattachAudio?: (testId: string, file: File) => Promise<void>;
+  audioHasError?: boolean;
 }
 
 export function formatMmSsXx(seconds: number): string {
@@ -28,6 +42,9 @@ export function formatMmSsXx(seconds: number): string {
   const hundredths = Math.min(99, Math.round((secs - whole) * 100));
   return `${String(mins).padStart(2, '0')}:${String(whole).padStart(2, '0')}.${String(hundredths).padStart(2, '0')}`;
 }
+
+// In-memory cache of decoded audio peaks to avoid freezing main thread on re-renders
+const peaksCache = new Map<string, number[]>();
 
 export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
   testPack,
@@ -44,6 +61,8 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
   onSynthesizeAudio,
   isSynthesizing,
   ttsNotice,
+  onReattachAudio,
+  audioHasError = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [peaks, setPeaks] = useState<number[]>([]);
@@ -52,12 +71,39 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
   useEffect(() => {
     let cancelled = false;
     const barCount = 110;
+    const cacheKey = `${testPack.id}_${testPack.audioUrl || 'no-audio'}`;
+
+    if (peaksCache.has(cacheKey)) {
+      setPeaks(peaksCache.get(cacheKey)!);
+      return;
+    }
 
     async function extractRealPeaks(url: string) {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 2500);
+
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: controller.signal });
+        window.clearTimeout(timeoutId);
+
+        // Guard against HTML 404 / SPA rewrite fallbacks
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('text/html') || !res.ok) {
+          throw new Error('Invalid audio response');
+        }
+
         const buf = await res.arrayBuffer();
-        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        // Guard against massive buffers (>30MB) freezing the main UI thread during decode
+        if (buf.byteLength > 30 * 1024 * 1024) {
+          const envelope = buildEnvelopePeaks(testPack, barCount);
+          peaksCache.set(cacheKey, envelope);
+          if (!cancelled) setPeaks(envelope);
+          return;
+        }
+
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         const ctx = new AudioCtx();
         const decoded = await ctx.decodeAudioData(buf);
         const channel = decoded.getChannelData(0);
@@ -73,23 +119,27 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
           }
           computed.push(Math.max(0.12, Math.min(1, maxVal * 1.15)));
         }
-        await ctx.close();
+        await ctx.close().catch(() => {});
+        peaksCache.set(cacheKey, computed);
         if (!cancelled) setPeaks(computed);
       } catch {
-        if (!cancelled) setPeaks(buildEnvelopePeaks(testPack, barCount));
+        const fallback = buildEnvelopePeaks(testPack, barCount);
+        peaksCache.set(cacheKey, fallback);
+        if (!cancelled) setPeaks(fallback);
       }
     }
 
-    if (testPack.audioUrl) {
+    if (testPack.audioUrl && !audioHasError) {
       extractRealPeaks(testPack.audioUrl);
     } else {
-      setPeaks(buildEnvelopePeaks(testPack, barCount));
+      const fallback = buildEnvelopePeaks(testPack, barCount);
+      setPeaks(fallback);
     }
 
     return () => {
       cancelled = true;
     };
-  }, [testPack]);
+  }, [testPack.id, testPack.audioUrl, testPack.durationSec, testPack.segments.length, audioHasError]);
 
   const effectiveDuration = duration > 0 ? duration : testPack.durationSec;
 
@@ -205,9 +255,9 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               </a>
             )}
 
-            {testPack.audioUrl ? (
+            {testPack.audioUrl && !audioHasError ? (
               <div className="inline-flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200">
                   <Volume2 className="w-3.5 h-3.5" aria-hidden="true" />
                   Audio đã lưu & đồng bộ
                 </span>
@@ -221,19 +271,70 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
                     Tải Audio
                   </a>
                 )}
+                {onReattachAudio && testPack.isCustomUpload && (
+                  <label
+                    title="Chọn lại file audio khác từ máy tính để gắn vào đề này"
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-md whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <Upload className="w-3 h-3 text-slate-500" aria-hidden="true" />
+                    Đổi Audio
+                    <input
+                      type="file"
+                      accept=".mp3,.wav,.m4a,.ogg,.webm,.flac,audio/mpeg,audio/wav,audio/mp4,audio/x-m4a,audio/webm,audio/ogg,audio/flac"
+                      className="sr-only"
+                      onClick={(e) => {
+                        (e.target as HTMLInputElement).value = '';
+                      }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          onReattachAudio(testPack.id, file);
+                        }
+                      }}
+                    />
+                  </label>
+                )}
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={onSynthesizeAudio}
-                disabled={isSynthesizing}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
-              >
-                <AudioWaveform className="w-3.5 h-3.5" aria-hidden="true" />
-                {isSynthesizing
-                  ? 'Đang tạo Audio IELTS...'
-                  : 'Tạo Audio chuẩn IELTS (AI TTS)'}
-              </button>
+              <div className="inline-flex items-center gap-2">
+                {audioHasError && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-300">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    Audio cần gắn lại
+                  </span>
+                )}
+                {onReattachAudio && (
+                  <label className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg whitespace-nowrap shrink-0 cursor-pointer transition-colors shadow-xs">
+                    <Upload className="w-3.5 h-3.5" aria-hidden="true" />
+                    Gắn lại Audio từ máy
+                    <input
+                      type="file"
+                      accept=".mp3,.wav,.m4a,.ogg,.webm,.flac,audio/mpeg,audio/wav,audio/mp4,audio/x-m4a,audio/webm,audio/ogg,audio/flac"
+                      className="sr-only"
+                      onClick={(e) => {
+                        (e.target as HTMLInputElement).value = '';
+                      }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          onReattachAudio(testPack.id, file);
+                        }
+                      }}
+                    />
+                  </label>
+                )}
+                <button
+                  type="button"
+                  onClick={onSynthesizeAudio}
+                  disabled={isSynthesizing}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
+                >
+                  <AudioWaveform className="w-3.5 h-3.5" aria-hidden="true" />
+                  {isSynthesizing
+                    ? 'Đang tạo Audio IELTS...'
+                    : 'Tạo Audio chuẩn IELTS (AI TTS)'}
+                </button>
+              </div>
             )}
 
             {testPack.isCustomUpload && onDeleteTest && (
@@ -258,6 +359,7 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               type="button"
               onClick={() => onSeek(Math.max(0, currentTime - 5))}
               aria-label="Lùi 5 giây"
+              title="Lùi 5 giây"
               className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
             >
               <RotateCcw className="w-4 h-4" />
@@ -266,16 +368,17 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
             <button
               type="button"
               onClick={onTogglePlay}
-              aria-label={isPlaying ? 'Tạm dừng' : 'Phát audio'}
-              className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-900 hover:bg-slate-800 text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
+              aria-label={isPlaying ? 'Tạm dừng' : 'Phát âm thanh'}
+              className="p-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
             >
-              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+              {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 fill-current" />}
             </button>
 
             <button
               type="button"
               onClick={() => onSeek(Math.min(effectiveDuration, currentTime + 5))}
-              aria-label="Tua tới 5 giây"
+              aria-label="Tiến 5 giây"
+              title="Tiến 5 giây"
               className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
             >
               <RotateCw className="w-4 h-4" />
@@ -330,8 +433,9 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
         </div>
 
         {ttsNotice && (
-          <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-            {ttsNotice}
+          <p className="text-xs text-slate-700 bg-amber-50/90 border border-amber-200 rounded-lg px-3 py-2 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>{ttsNotice}</span>
           </p>
         )}
       </div>

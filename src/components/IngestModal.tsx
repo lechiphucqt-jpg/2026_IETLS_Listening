@@ -3,6 +3,7 @@ import { ExternalLink, FileAudio, FileText, Key, Loader2, Upload, X } from 'luci
 import type { ListeningTestPack } from '../types/ielts';
 import { extractErrorMessage, safeParseJsonResponse } from '../utils/safeFetchJson';
 import { processIngestClientSide } from '../utils/clientGemini';
+import { saveMediaBlob } from '../utils/indexedDBStorage';
 
 interface IngestModalProps {
   isOpen: boolean;
@@ -29,6 +30,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
   const [title, setTitle] = useState('');
   const [partLabel, setPartLabel] = useState('Part 2');
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [rawText, setRawText] = useState('');
   const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('GEMINI_API_KEY') || '');
@@ -36,6 +38,18 @@ export const IngestModal: React.FC<IngestModalProps> = ({
   const [progressLabel, setProgressLabel] = useState('Đang tải tệp lên máy chủ...');
   const [progressPercent, setProgressPercent] = useState(10);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (audioFile) {
+      const url = URL.createObjectURL(audioFile);
+      setAudioPreviewUrl(url);
+      return () => {
+        URL.revokeObjectURL(url);
+      };
+    } else {
+      setAudioPreviewUrl(null);
+    }
+  }, [audioFile]);
 
   useEffect(() => {
     if (isOpen) {
@@ -209,6 +223,27 @@ export const IngestModal: React.FC<IngestModalProps> = ({
         );
       }
 
+      // Ensure media is permanently saved to IndexedDB regardless of server/client ingest
+      if (audioFile && finalPack) {
+        try {
+          const liveAudioUrl = await saveMediaBlob(finalPack.id, 'audio', audioFile, audioFile.name);
+          finalPack.audioUrl = liveAudioUrl;
+          finalPack.audioFileName = audioFile.name;
+        } catch (saveErr) {
+          console.warn('[IngestModal] Failed to persist audio to IndexedDB:', saveErr);
+        }
+      }
+
+      if (pdfFile && finalPack) {
+        try {
+          const livePdfUrl = await saveMediaBlob(finalPack.id, 'pdf', pdfFile, pdfFile.name);
+          finalPack.pdfUrl = livePdfUrl;
+          finalPack.pdfFileName = pdfFile.name;
+        } catch (saveErr) {
+          console.warn('[IngestModal] Failed to persist PDF to IndexedDB:', saveErr);
+        }
+      }
+
       onIngestSuccess(finalPack);
       setTitle('');
       setAudioFile(null);
@@ -358,11 +393,20 @@ export const IngestModal: React.FC<IngestModalProps> = ({
                 </span>
                 <input
                   type="file"
-                  accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm,.flac"
+                  accept=".mp3,.wav,.m4a,.ogg,.webm,.flac,audio/mpeg,audio/wav,audio/mp4,audio/x-m4a,audio/webm,audio/ogg,audio/flac"
                   className="sr-only"
+                  onClick={(e) => {
+                    (e.target as HTMLInputElement).value = '';
+                  }}
                   onChange={(e) => setAudioFile(e.target.files?.[0] || null)}
                 />
               </label>
+              {audioPreviewUrl && (
+                <div className="mt-1 w-full flex flex-col items-center gap-1">
+                  <span className="text-[10px] text-slate-500 font-medium">Nghe thử file âm thanh:</span>
+                  <audio controls src={audioPreviewUrl} className="h-7 w-full max-w-[220px]" />
+                </div>
+              )}
             </div>
 
             <div className="relative flex flex-col items-center justify-center gap-2 p-5 border border-dashed border-slate-300 rounded-xl bg-slate-50 hover:bg-slate-100/70 transition-colors text-center">
@@ -390,6 +434,9 @@ export const IngestModal: React.FC<IngestModalProps> = ({
                   type="file"
                   accept="application/pdf,.pdf"
                   className="sr-only"
+                  onClick={(e) => {
+                    (e.target as HTMLInputElement).value = '';
+                  }}
                   onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
                 />
               </label>

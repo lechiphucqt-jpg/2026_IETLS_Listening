@@ -21,6 +21,12 @@ import { ApiKeyModal } from './components/ApiKeyModal';
 import { safeParseJsonResponse } from './utils/safeFetchJson';
 import { useDisplaySettings } from './utils/useDisplaySettings';
 import { generatePedagogicalReportClientSide } from './utils/clientGemini';
+import {
+  deleteMediaForTest,
+  getOrCreateLiveMediaUrl,
+  isAudioUrlPlayable,
+  saveMediaBlob,
+} from './utils/indexedDBStorage';
 
 const FLASHCARD_STORAGE_KEY = 'lexisync_ielts_flashcards_v1';
 const CUSTOM_TESTS_STORAGE_KEY = 'lexisync_ielts_custom_tests_v1';
@@ -254,6 +260,93 @@ export default function App() {
     };
   }, []);
 
+  // Rehydrate persistent Audio & PDF blobs from IndexedDB across page reloads/sessions
+  useEffect(() => {
+    let cancelled = false;
+
+    async function rehydrateMedia() {
+      const customPacks = tests.filter((t) => t.isCustomUpload || !SAMPLE_ID_SET.has(t.id));
+      if (customPacks.length === 0) return;
+
+      let changed = false;
+      const updatedTests = await Promise.all(
+        tests.map(async (t) => {
+          if (!t.isCustomUpload && SAMPLE_ID_SET.has(t.id)) return t;
+
+          let nextAudioUrl = t.audioUrl;
+          let nextAudioName = t.audioFileName;
+          let nextPdfUrl = t.pdfUrl;
+          let nextPdfName = t.pdfFileName;
+
+          try {
+            const liveAudio = await getOrCreateLiveMediaUrl(t.id, 'audio');
+            if (liveAudio && liveAudio.url) {
+              if (liveAudio.url !== t.audioUrl) {
+                nextAudioUrl = liveAudio.url;
+                if (liveAudio.fileName) nextAudioName = liveAudio.fileName;
+                changed = true;
+              }
+            } else if (t.audioUrl && t.audioUrl.startsWith('blob:')) {
+              // Dead blob URL from an old session, check if playable
+              const playable = await isAudioUrlPlayable(t.audioUrl);
+              if (!playable) {
+                nextAudioUrl = undefined;
+                changed = true;
+              }
+            }
+          } catch {
+            // ignore
+          }
+
+          try {
+            const livePdf = await getOrCreateLiveMediaUrl(t.id, 'pdf');
+            if (livePdf && livePdf.url) {
+              if (livePdf.url !== t.pdfUrl) {
+                nextPdfUrl = livePdf.url;
+                if (livePdf.fileName) nextPdfName = livePdf.fileName;
+                changed = true;
+              }
+            } else if (t.pdfUrl && t.pdfUrl.startsWith('blob:')) {
+              const playable = await isAudioUrlPlayable(t.pdfUrl);
+              if (!playable) {
+                nextPdfUrl = undefined;
+                changed = true;
+              }
+            }
+          } catch {
+            // ignore
+          }
+
+          if (
+            nextAudioUrl !== t.audioUrl ||
+            nextAudioName !== t.audioFileName ||
+            nextPdfUrl !== t.pdfUrl ||
+            nextPdfName !== t.pdfFileName
+          ) {
+            return {
+              ...t,
+              audioUrl: nextAudioUrl,
+              audioFileName: nextAudioName,
+              pdfUrl: nextPdfUrl,
+              pdfFileName: nextPdfName,
+            };
+          }
+          return t;
+        })
+      );
+
+      if (!cancelled && changed) {
+        setTests(updatedTests);
+      }
+    }
+
+    rehydrateMedia();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     try {
       const customOnly = tests.filter((t) => !SAMPLE_ID_SET.has(t.id));
@@ -335,6 +428,7 @@ export default function App() {
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [isSynthesizing, setIsSynthesizing] = useState(false);
   const [ttsNotice, setTtsNotice] = useState<string | null>(null);
+  const [audioHasError, setAudioHasError] = useState(false);
 
   const segmentEndLimitRef = useRef<number | null>(null);
   const speechTickerRef = useRef<number | null>(null);
@@ -362,10 +456,29 @@ export default function App() {
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(activeTest.durationSec);
+    setAudioHasError(false);
     setTtsNotice(null);
     setElapsedSec(0);
     setAnalyzeError(null);
-  }, [activeTest.id, activeTest.durationSec, stopSpeechFallback]);
+
+    // Verify if active test audio URL is playable
+    if (activeTest.audioUrl) {
+      isAudioUrlPlayable(activeTest.audioUrl).then((playable) => {
+        if (!playable) {
+          getOrCreateLiveMediaUrl(activeTest.id, 'audio').then((recovered) => {
+            if (recovered && recovered.url && recovered.url !== activeTest.audioUrl) {
+              setTests((prev) =>
+                prev.map((t) => (t.id === activeTest.id ? { ...t, audioUrl: recovered.url } : t))
+              );
+              setAudioHasError(false);
+            } else {
+              setAudioHasError(true);
+            }
+          });
+        }
+      });
+    }
+  }, [activeTest.id, activeTest.audioUrl, activeTest.durationSec, stopSpeechFallback]);
 
   // Sync HTML5 audio playback rate
   useEffect(() => {
@@ -393,6 +506,7 @@ export default function App() {
     };
 
     const handleLoaded = () => {
+      setAudioHasError(false);
       if (Number.isFinite(audio.duration) && audio.duration > 0) {
         const realDur = Number(audio.duration.toFixed(2));
         setDuration(realDur);
@@ -426,13 +540,40 @@ export default function App() {
       segmentEndLimitRef.current = null;
     };
 
+    const handleError = async () => {
+      console.warn('[Audio] HTML5 audio error encountered for', activeTest.id);
+      setAudioHasError(true);
+      setIsPlaying(false);
+
+      if (activeTest.id && !SAMPLE_ID_SET.has(activeTest.id)) {
+        try {
+          const liveMedia = await getOrCreateLiveMediaUrl(activeTest.id, 'audio');
+          if (liveMedia && liveMedia.url && liveMedia.url !== activeTest.audioUrl) {
+            setTests((prev) =>
+              prev.map((t) => (t.id === activeTest.id ? { ...t, audioUrl: liveMedia.url } : t))
+            );
+            setAudioHasError(false);
+            return;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      setTtsNotice(
+        'Tệp audio không thể phát hoặc đã hết hạn phiên làm việc. Hệ thống đã tự động chuyển sang giọng đọc mô phỏng. Bạn có thể bấm "Gắn lại Audio từ máy" để tiếp tục nghe file âm thanh gốc.'
+      );
+    };
+
     audio.addEventListener('timeupdate', handleTime);
     audio.addEventListener('loadedmetadata', handleLoaded);
     audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('error', handleError);
     return () => {
       audio.removeEventListener('timeupdate', handleTime);
       audio.removeEventListener('loadedmetadata', handleLoaded);
       audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('error', handleError);
     };
   }, [activeTest.audioUrl, activeTest.id]);
 
@@ -505,37 +646,42 @@ export default function App() {
       const clamped = Math.max(0, Math.min(duration, targetSec));
       segmentEndLimitRef.current = endLimitSec;
 
-      if (activeTest.audioUrl && audioRef.current) {
+      if (activeTest.audioUrl && audioRef.current && !audioHasError) {
         stopSpeechFallback();
         audioRef.current.currentTime = clamped;
         audioRef.current.playbackRate = playbackRate;
         audioRef.current
           .play()
           .then(() => setIsPlaying(true))
-          .catch(() => setIsPlaying(false));
+          .catch((err) => {
+            console.warn('[Audio] play() failed, falling back to speech synthesis:', err);
+            setIsPlaying(false);
+            setAudioHasError(true);
+            startSpeechFromTime(clamped, endLimitSec);
+          });
         setCurrentTime(clamped);
       } else {
         startSpeechFromTime(clamped, endLimitSec);
       }
     },
-    [activeTest.audioUrl, duration, playbackRate, startSpeechFromTime, stopSpeechFallback]
+    [activeTest.audioUrl, audioHasError, duration, playbackRate, startSpeechFromTime, stopSpeechFallback]
   );
 
   const handleSeek = useCallback(
     (targetSec: number) => {
       const clamped = Math.max(0, Math.min(duration, targetSec));
       setCurrentTime(clamped);
-      if (activeTest.audioUrl && audioRef.current) {
+      if (activeTest.audioUrl && audioRef.current && !audioHasError) {
         audioRef.current.currentTime = clamped;
       } else if (isPlaying) {
         startSpeechFromTime(clamped, null);
       }
     },
-    [activeTest.audioUrl, duration, isPlaying, startSpeechFromTime]
+    [activeTest.audioUrl, audioHasError, duration, isPlaying, startSpeechFromTime]
   );
 
   const handleTogglePlay = useCallback(() => {
-    if (activeTest.audioUrl && audioRef.current) {
+    if (activeTest.audioUrl && audioRef.current && !audioHasError) {
       if (isPlaying) {
         audioRef.current.pause();
         setIsPlaying(false);
@@ -544,7 +690,13 @@ export default function App() {
         audioRef.current
           .play()
           .then(() => setIsPlaying(true))
-          .catch(() => setIsPlaying(false));
+          .catch((err) => {
+            console.warn('[Audio] handleTogglePlay play() failed:', err);
+            setIsPlaying(false);
+            setAudioHasError(true);
+            const startPos = currentTime >= activeTest.durationSec - 0.5 ? 0 : currentTime;
+            startSpeechFromTime(startPos, null);
+          });
       }
     } else {
       if (isPlaying) {
@@ -558,6 +710,7 @@ export default function App() {
   }, [
     activeTest.audioUrl,
     activeTest.durationSec,
+    audioHasError,
     currentTime,
     isPlaying,
     playbackRate,
@@ -842,6 +995,11 @@ export default function App() {
       } catch {
         // ignore network error; still remove locally
       }
+      try {
+        await deleteMediaForTest(testId);
+      } catch {
+        // ignore
+      }
       setTests((prev) => {
         const next = prev.filter((t) => t.id !== testId);
         if (activeTestId === testId && next[0]) {
@@ -851,6 +1009,30 @@ export default function App() {
       });
     },
     [activeTestId]
+  );
+
+  const handleReattachAudio = useCallback(
+    async (testId: string, file: File) => {
+      try {
+        const freshUrl = await saveMediaBlob(testId, 'audio', file, file.name);
+        setAudioHasError(false);
+        setTtsNotice(null);
+        setTests((prev) =>
+          prev.map((t) => {
+            if (t.id !== testId) return t;
+            return {
+              ...t,
+              audioUrl: freshUrl,
+              audioFileName: file.name,
+            };
+          })
+        );
+      } catch (err) {
+        console.error('[Audio] Failed to reattach audio:', err);
+        alert('Không thể lưu tệp âm thanh vào bộ nhớ trình duyệt: ' + String(err));
+      }
+    },
+    []
   );
 
   const savedWordsSet = useMemo(() => {
@@ -1030,6 +1212,8 @@ export default function App() {
         onSynthesizeAudio={handleSynthesizeAudio}
         isSynthesizing={isSynthesizing}
         ttsNotice={ttsNotice}
+        onReattachAudio={handleReattachAudio}
+        audioHasError={audioHasError}
       />
 
       <main className="flex-1">

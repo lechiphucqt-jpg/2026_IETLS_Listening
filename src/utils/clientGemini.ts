@@ -8,6 +8,7 @@ import type {
   QuestionType,
   TranscriptSegment,
 } from '../types/ielts';
+import { saveMediaBlob } from './indexedDBStorage';
 
 export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -757,6 +758,26 @@ Trả về DUY NHẤT một JSON hợp lệ (không kèm văn bản ngoài):
     intensiveDrills: [],
     classroomDrills: finalDrills,
   };
+
+  if (audioFile) {
+    try {
+      const persistedUrl = await saveMediaBlob(pack.id, 'audio', audioFile, audioFile.name);
+      pack.audioUrl = persistedUrl;
+      pack.audioFileName = audioFile.name;
+    } catch (saveErr) {
+      console.warn('[clientGemini] Failed to save audio to IndexedDB:', saveErr);
+    }
+  }
+
+  if (pdfFile) {
+    try {
+      const persistedPdfUrl = await saveMediaBlob(pack.id, 'pdf', pdfFile, pdfFile.name);
+      pack.pdfUrl = persistedPdfUrl;
+      pack.pdfFileName = pdfFile.name;
+    } catch (saveErr) {
+      console.warn('[clientGemini] Failed to save PDF to IndexedDB:', saveErr);
+    }
+  }
 
   return pack;
 }
