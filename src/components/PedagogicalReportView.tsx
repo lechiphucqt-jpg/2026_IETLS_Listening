@@ -1,17 +1,19 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
   BookMarked,
   CheckCircle2,
   FileDown,
+  Languages,
+  Loader2,
   Play,
   Plus,
   Check,
   Sparkles,
   XCircle,
 } from 'lucide-react';
-import type { AwlVocabItem, IeltsQuestion, PedagogicalReport } from '../types/ielts';
+import type { AwlVocabItem, IeltsQuestion, ListeningTestPack, PedagogicalReport } from '../types/ielts';
 import { AudioSegmentTimeAdjuster } from './AudioSegmentTimeAdjuster';
 import { exportTeacherAnswerKeyDocx } from '../utils/docxExport';
 import { CompetencyRadarChart } from './CompetencyRadarChart';
@@ -28,6 +30,13 @@ interface PedagogicalReportViewProps {
   onSaveFlashcard: (item: AwlVocabItem) => void;
   savedWords: Set<string>;
   onGoToExam: () => void;
+  testPack?: ListeningTestPack;
+  onTranslateVocab?: (
+    word: string,
+    sentenceContext: string,
+    timestampSec?: number,
+    timestampLabel?: string
+  ) => Promise<AwlVocabItem>;
 }
 
 export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
@@ -41,10 +50,29 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
   onSaveFlashcard,
   savedWords,
   onGoToExam,
+  testPack,
+  onTranslateVocab,
 }) => {
   const [coachQuestion, setCoachQuestion] = useState<IeltsQuestion | null>(null);
   const [coachUserAnswer, setCoachUserAnswer] = useState<string>('');
   const [isCoachOpen, setIsCoachOpen] = useState(false);
+
+  // Vocabulary Form State (AI & Manual)
+  const [customWord, setCustomWord] = useState('');
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string>(
+    testPack?.segments[0]?.id || ''
+  );
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
+  const [addMode, setAddMode] = useState<'ai' | 'manual'>('ai');
+  const [manualDef, setManualDef] = useState('');
+  const [manualIpa, setManualIpa] = useState('');
+
+  useEffect(() => {
+    if (testPack?.segments && testPack.segments.length > 0) {
+      setSelectedSegmentId(testPack.segments[0].id);
+    }
+  }, [testPack?.id, testPack?.segments]);
   if (!report) {
     return (
       <div className="max-w-[1100px] mx-auto px-6 py-16 text-center">
@@ -76,6 +104,91 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
     part4AcademicSpotlight,
     part5ActionPlan,
   } = report;
+
+  const displayedVocab = useMemo(() => {
+    const list = [...(part4AcademicSpotlight || [])];
+    const seen = new Set(list.map((v) => v.word.toLowerCase()));
+    if (testPack?.vocabulary) {
+      for (const v of testPack.vocabulary) {
+        if (!seen.has(v.word.toLowerCase())) {
+          seen.add(v.word.toLowerCase());
+          list.push(v);
+        }
+      }
+    }
+    return list;
+  }, [part4AcademicSpotlight, testPack?.vocabulary]);
+
+  const handleTranslateAndAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleaned = customWord.trim();
+    if (!cleaned || !onTranslateVocab) return;
+    setIsTranslating(true);
+    setTranslateError(null);
+    try {
+      const segs = testPack?.segments || [];
+      const seg =
+        segs.find((s) => s.id === selectedSegmentId) ||
+        segs.find((s) => s.text.toLowerCase().includes(cleaned.toLowerCase())) ||
+        segs[0];
+      await onTranslateVocab(
+        cleaned,
+        seg?.text || '',
+        seg?.startSec ?? 0,
+        seg?.timestampLabel ?? '[00:00.00]'
+      );
+      setCustomWord('');
+    } catch (err: unknown) {
+      setTranslateError(
+        err instanceof Error ? err.message : 'Không thể dịch từ theo ngữ cảnh bài.'
+      );
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const handleManualAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleaned = customWord.trim();
+    if (!cleaned) return;
+    setIsTranslating(true);
+    setTranslateError(null);
+    try {
+      const segs = testPack?.segments || [];
+      const seg = segs.find((s) => s.id === selectedSegmentId) || segs[0];
+      const newItem: AwlVocabItem = {
+        word: cleaned,
+        ipa: manualIpa.trim(),
+        pos: 'word',
+        definitionVi: manualDef.trim() || cleaned,
+        contextualMeaningVi: manualDef.trim() || cleaned,
+        definitionEn: '',
+        exampleInAudio: seg?.text || cleaned,
+        exampleTranslationVi: '',
+        timestampSec: seg?.startSec ?? 0,
+        timestampLabel: seg?.timestampLabel ?? '[00:00.00]',
+        isAwl: true,
+      };
+      onSaveFlashcard(newItem);
+      if (onTranslateVocab) {
+        await onTranslateVocab(
+          cleaned,
+          seg?.text || '',
+          seg?.startSec ?? 0,
+          seg?.timestampLabel ?? '[00:00.00]'
+        );
+      }
+      setCustomWord('');
+      setManualDef('');
+      setManualIpa('');
+    } catch (err: unknown) {
+      setTranslateError(
+        err instanceof Error ? err.message : 'Không thể lưu từ vựng.'
+      );
+    } finally {
+      setIsTranslating(false);
+    }
+  };
 
   return (
     <div className="max-w-[1200px] mx-auto px-6 py-8 space-y-10">
@@ -374,14 +487,149 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
 
       {/* Phần 4: Kho từ vựng (Academic Spotlight) */}
       <section aria-labelledby="part4-heading" className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/80">
-          <h2 id="part4-heading" className="text-base font-bold text-[#0F2744]">
-            04. Kho từ vựng (Academic Spotlight — AWL)
-          </h2>
-          <p className="text-xs font-medium text-slate-500 mt-0.5">
-            Các từ vựng học thuật được dịch nghĩa tiếng Việt theo đúng ngữ cảnh bài nghe kèm phiên âm và câu ví dụ
-          </p>
+        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/80 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 id="part4-heading" className="text-base font-bold text-[#0F2744]">
+              04. Kho từ vựng (Academic Spotlight — AWL)
+            </h2>
+            <p className="text-xs font-medium text-slate-500 mt-0.5">
+              Các từ vựng học thuật được dịch nghĩa tiếng Việt theo đúng ngữ cảnh bài nghe kèm phiên âm và câu ví dụ
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 p-1 bg-slate-200/60 rounded-lg text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setAddMode('ai')}
+              className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                addMode === 'ai' ? 'bg-white text-slate-900 shadow-2xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ✨ Dịch AI theo ngữ cảnh
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddMode('manual')}
+              className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                addMode === 'manual' ? 'bg-white text-slate-900 shadow-2xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ✍️ Tự nhập thủ công
+            </button>
+          </div>
         </div>
+
+        {/* Form tự dịch từ vựng sang tiếng Việt theo ngữ cảnh bài */}
+        {onTranslateVocab && (
+          <div className="p-5 border-b border-slate-200 bg-slate-50/40">
+            {addMode === 'ai' ? (
+              <form onSubmit={handleTranslateAndAdd} className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Tự dịch từ vựng sang tiếng Việt theo ngữ cảnh bài: {testPack?.title || report.testTitle}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Nhập bất kỳ từ/cụm từ nào nghe được trong bài; AI sẽ phiên âm IPA và dịch sát nghĩa theo đúng ngữ cảnh đoạn thoại đã chọn
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <input
+                    type="text"
+                    value={customWord}
+                    onChange={(e) => setCustomWord(e.target.value)}
+                    placeholder="Ví dụ: bottleneck, counter-illumination, induction..."
+                    className="md:col-span-4 text-sm bg-white border border-slate-300 focus:border-[#0F2744] focus:ring-2 focus:ring-[#0F2744]/20 rounded-lg px-3.5 py-2 outline-none"
+                  />
+                  <select
+                    value={selectedSegmentId}
+                    onChange={(e) => setSelectedSegmentId(e.target.value)}
+                    aria-label="Chọn đoạn ngữ cảnh trong bài"
+                    className="md:col-span-5 text-xs text-slate-700 bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none"
+                  >
+                    {(testPack?.segments || []).map((seg) => (
+                      <option key={seg.id} value={seg.id}>
+                        {seg.timestampLabel} ({seg.speaker}): {seg.text.slice(0, 72)}
+                        {seg.text.length > 72 ? '...' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={isTranslating || !customWord.trim()}
+                    className="md:col-span-3 inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F2744] hover:bg-[#0A1B30] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 shadow-xs"
+                  >
+                    {isTranslating ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                        Đang dịch theo ngữ cảnh...
+                      </>
+                    ) : (
+                      <>
+                        <Languages className="w-3.5 h-3.5" aria-hidden="true" />
+                        Dịch & Thêm vào bài
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {translateError && (
+                  <p role="alert" className="text-xs text-red-700">
+                    {translateError}
+                  </p>
+                )}
+              </form>
+            ) : (
+              <form onSubmit={handleManualAdd} className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Tự thêm từ vựng thủ công vào bài: {testPack?.title || report.testTitle}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Tự điền từ tiếng Anh, nghĩa tiếng Việt và phiên âm để lưu vào kho từ vựng và Flashcards ngay
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <input
+                    type="text"
+                    value={customWord}
+                    onChange={(e) => setCustomWord(e.target.value)}
+                    placeholder="Từ vựng (vd: fortress)..."
+                    className="md:col-span-3 text-sm bg-white border border-slate-300 focus:border-[#0F2744] focus:ring-2 focus:ring-[#0F2744]/20 rounded-lg px-3.5 py-2 outline-none font-semibold text-slate-900"
+                  />
+                  <input
+                    type="text"
+                    value={manualDef}
+                    onChange={(e) => setManualDef(e.target.value)}
+                    placeholder="Nghĩa tiếng Việt theo bài (vd: pháo đài phòng thủ)..."
+                    className="md:col-span-4 text-sm bg-white border border-slate-300 focus:border-[#0F2744] focus:ring-2 focus:ring-[#0F2744]/20 rounded-lg px-3.5 py-2 outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={manualIpa}
+                    onChange={(e) => setManualIpa(e.target.value)}
+                    placeholder="Phiên âm IPA (tùy chọn, vd: /ˈfɔːtrəs/)..."
+                    className="md:col-span-2 text-xs bg-white border border-slate-300 focus:border-[#0F2744] focus:ring-2 focus:ring-[#0F2744]/20 rounded-lg px-3 py-2 outline-none font-mono"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isTranslating || !customWord.trim()}
+                    className="md:col-span-3 inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                    Lưu từ vựng thủ công
+                  </button>
+                </div>
+
+                {translateError && (
+                  <p role="alert" className="text-xs text-red-700">
+                    {translateError}
+                  </p>
+                )}
+              </form>
+            )}
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -395,7 +643,7 @@ export const PedagogicalReportView: React.FC<PedagogicalReportViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-sm">
-              {part4AcademicSpotlight.map((v) => {
+              {displayedVocab.map((v) => {
                 const isSaved = savedWords.has(v.word.toLowerCase());
                 return (
                   <tr key={v.word} className="hover:bg-slate-50/60 align-top">

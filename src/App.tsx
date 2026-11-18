@@ -403,6 +403,7 @@ export default function App() {
             questions: t.questions,
             classroomDrills: t.classroomDrills,
             segments: t.segments,
+            vocabulary: t.vocabulary,
             durationSec: t.durationSec,
           };
         }
@@ -917,16 +918,34 @@ export default function App() {
       timestampSec = 0,
       timestampLabel = '[00:00.00]'
     ): Promise<AwlVocabItem> => {
+      const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
       const isLocalhost =
         typeof window !== 'undefined' &&
         (window.location.hostname === 'localhost' ||
           window.location.hostname === '127.0.0.1' ||
           window.location.port === '3000');
-      const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
 
       let newItem: AwlVocabItem | undefined;
 
-      if (isLocalhost) {
+      // 1. Prioritize Client-side direct Gemini translation if API key is provided
+      if (apiKey.trim()) {
+        try {
+          newItem = await translateVocabClientSide({
+            apiKey: apiKey.trim(),
+            word,
+            sentenceContext,
+            testTitle: activeTest.title,
+            topic: activeTest.topic,
+            timestampSec,
+            timestampLabel,
+          });
+        } catch (clientErr) {
+          console.warn('[handleTranslateVocab] Client translation note:', clientErr);
+        }
+      }
+
+      // 2. Localhost fallback
+      if (!newItem && isLocalhost) {
         try {
           const res = await fetch('/api/ielts/translate-vocab', {
             method: 'POST',
@@ -940,11 +959,8 @@ export default function App() {
             }),
           });
           if (res.ok) {
-            const data = await safeParseJsonResponse<{
-              vocabItem?: Omit<AwlVocabItem, 'timestampSec' | 'timestampLabel' | 'isAwl'>;
-              error?: string;
-            }>(res, 'Máy chủ trả về phản hồi không hợp lệ khi dịch từ vựng.');
-            if (data.vocabItem) {
+            const data = await res.json().catch(() => null);
+            if (data && data.vocabItem) {
               newItem = {
                 ...data.vocabItem,
                 timestampSec,
@@ -954,10 +970,11 @@ export default function App() {
             }
           }
         } catch {
-          // Fallback to client-side
+          // Fallback
         }
       }
 
+      // 3. Guaranteed fallback if still empty
       if (!newItem) {
         newItem = await translateVocabClientSide({
           apiKey,
@@ -970,6 +987,7 @@ export default function App() {
         });
       }
 
+      // Update test vocabulary
       setTests((prev) =>
         prev.map((t) => {
           if (t.id !== activeTest.id) return t;
@@ -984,10 +1002,31 @@ export default function App() {
         })
       );
 
+      // Also update active report's part4AcademicSpotlight immediately
+      setReportsByTest((prev) => {
+        const currentReport = prev[activeTest.id];
+        if (!currentReport) return prev;
+        const currentList = currentReport.part4AcademicSpotlight || [];
+        const idx = currentList.findIndex(
+          (v) => v.word.toLowerCase() === newItem!.word.toLowerCase()
+        );
+        const nextList =
+          idx >= 0
+            ? currentList.map((v, i) => (i === idx ? newItem! : v))
+            : [newItem!, ...currentList];
+        return {
+          ...prev,
+          [activeTest.id]: {
+            ...currentReport,
+            part4AcademicSpotlight: nextList,
+          },
+        };
+      });
+
       handleSaveFlashcard(newItem, 'new');
       return newItem;
     },
-    [activeTest.id, activeTest.title, activeTest.topic, handleSaveFlashcard]
+    [activeTest, handleSaveFlashcard]
   );
 
   const handleExtractClassroomDrills = useCallback(
@@ -1521,6 +1560,8 @@ export default function App() {
             onSaveFlashcard={handleSaveFlashcard}
             savedWords={savedWordsSet}
             onGoToExam={() => setActiveView('exam')}
+            testPack={activeTest}
+            onTranslateVocab={handleTranslateVocab}
           />
         )}
 
