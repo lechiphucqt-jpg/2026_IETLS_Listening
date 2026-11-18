@@ -1,0 +1,6 @@
+{
+  "name": "LexiSync IELTS — Listening Mastermind",
+  "description": "Hệ thống luyện thi IELTS Listening thông minh tích hợp đồng bộ Audio-to-Text theo mili giây, mô phỏng phòng thi IDP/BC, phân tích bẫy & paraphrasing chuyên sâu bằng AI, luyện nghe chép chính tả và Shadowing đối chiếu sóng âm.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
