@@ -847,8 +847,7 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
                     )}
                   </div>
                 ))}
-               
-              </div>
+                </div>
             </div>
           ) : (
             /* Two-Zone Interactive Sandbox: Left List (10-15 sentences) + Right Dictation & Shadowing Stage */
