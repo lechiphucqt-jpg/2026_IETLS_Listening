@@ -12,6 +12,7 @@ import {
   Play,
 } from 'lucide-react';
 import type { IeltsQuestion } from '../types/ielts';
+import { callCoachClientSide } from '../utils/clientGemini';
 
 interface AiListeningCoachModalProps {
   isOpen: boolean;
@@ -103,39 +104,57 @@ Bạn có thắc mắc gì về lý do chọn đáp án, cách người nói gi�
       }));
 
       const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
-      const res = await fetch('/api/ielts/coach-chat', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
-        },
-        body: JSON.stringify({
+      let reply = '';
+
+      try {
+        const res = await fetch('/api/ielts/coach-chat', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
+          },
+          body: JSON.stringify({
+            testTitle,
+            partLabel,
+            question,
+            userAnswer,
+            message: content,
+            history,
+            apiKey,
+          }),
+        });
+
+        if (res.ok) {
+          const data = (await res.json()) as { reply?: string; error?: string };
+          if (data.reply) {
+            reply = data.reply;
+          }
+        }
+      } catch {
+        // Fallback to client-side direct Gemini
+      }
+
+      if (!reply) {
+        if (!apiKey) {
+          throw new Error('Chưa có Gemini API Key. Vui lòng bấm nút "API Key" để cài đặt khóa API của bạn.');
+        }
+        reply = await callCoachClientSide({
+          apiKey,
           testTitle,
           partLabel,
           question,
           userAnswer,
           message: content,
           history,
-          apiKey,
-        }),
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => null);
-        throw new Error(errJson?.error || `Máy chủ báo lỗi ${res.status}`);
-      }
-
-      const data = (await res.json()) as { reply?: string; error?: string };
-      if (!data.reply) {
-        throw new Error(data.error || 'Gia sư AI chưa thể phản hồi.');
+        });
       }
 
       const modelMsg: ChatMessage = {
         id: `model-${Date.now()}`,
         role: 'model',
-        text: data.reply,
+        text: reply,
         timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
       };
 

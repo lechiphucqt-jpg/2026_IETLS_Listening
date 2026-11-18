@@ -20,6 +20,7 @@ import { IngestModal } from './components/IngestModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { safeParseJsonResponse } from './utils/safeFetchJson';
 import { useDisplaySettings } from './utils/useDisplaySettings';
+import { generatePedagogicalReportClientSide } from './utils/clientGemini';
 
 const FLASHCARD_STORAGE_KEY = 'lexisync_ielts_flashcards_v1';
 const CUSTOM_TESTS_STORAGE_KEY = 'lexisync_ielts_custom_tests_v1';
@@ -621,26 +622,46 @@ export default function App() {
     setIsAnalyzing(true);
     setAnalyzeError(null);
     try {
-      const res = await fetch('/api/ielts/analyze', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
-          testPack: activeTest,
-          userAnswers,
-          timeSpentSec: elapsedSec,
-        }),
-      });
-      const data = await safeParseJsonResponse<{
-        report?: PedagogicalReport;
-        error?: string;
-      }>(res, 'Không thể tạo báo cáo phân tích AI.');
-      if (!data.report) {
-        throw new Error(data.error || 'Không thể tạo báo cáo phân tích AI.');
+      let report: PedagogicalReport | undefined;
+      const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
+
+      try {
+        const res = await fetch('/api/ielts/analyze', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            testPack: activeTest,
+            userAnswers,
+            timeSpentSec: elapsedSec,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await safeParseJsonResponse<{
+            report?: PedagogicalReport;
+            error?: string;
+          }>(res, 'Không thể tạo báo cáo phân tích AI.');
+          if (data.report) {
+            report = data.report;
+          }
+        }
+      } catch {
+        // Fallback to client-side
       }
+
+      if (!report) {
+        report = await generatePedagogicalReportClientSide(
+          apiKey,
+          activeTest,
+          userAnswers,
+          elapsedSec
+        );
+      }
+
       setReportsByTest((prev) => ({
         ...prev,
-        [activeTest.id]: data.report!,
+        [activeTest.id]: report!,
       }));
       setActiveView('analysis');
     } catch (err: unknown) {
