@@ -23,18 +23,18 @@ const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT) || 3000;
 
-function getAiClient(apiVersion?: string): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
+function getAiClient(clientApiKey?: string, apiVersion?: string): GoogleGenAI {
+  const apiKey = clientApiKey || process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error(
-      'GEMINI_API_KEY chưa được cấu hình. Vui lòng thiết lập khóa API trong mục Settings > Secrets.'
+      'GEMINI_API_KEY chưa được cấu hình. Vui lòng bấm vào nút "API Key (Lấy API key để sử dụng app)" trên Header để nhập khóa Gemini API miễn phí của bạn.'
     );
   }
   return new GoogleGenAI({
     apiKey,
     ...(apiVersion ? { apiVersion } : {}),
     httpOptions: {
-      timeout: 35000,
+      timeout: 45000,
       headers: {
         'User-Agent': 'aistudio-build',
       },
@@ -43,15 +43,42 @@ function getAiClient(apiVersion?: string): GoogleGenAI {
 }
 
 function formatGeminiError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  if (raw.includes('429') || raw.includes('RESOURCE_EXHAUSTED')) {
-    return 'Hạn mức API miễn phí (Free Tier quota) đã tạm thời hết. Bạn có thể nâng cấp gói trả phí hoặc chọn khóa API có bật thanh toán trong bảng Settings > Secrets.';
+  let raw = '';
+  if (err instanceof Error) {
+    raw = err.message;
+  } else if (typeof err === 'object' && err !== null) {
+    const anyErr = err as Record<string, unknown>;
+    if (typeof anyErr.message === 'string') {
+      raw = anyErr.message;
+    } else if (anyErr.error && typeof anyErr.error === 'object') {
+      const nested = anyErr.error as Record<string, unknown>;
+      raw = typeof nested.message === 'string' ? nested.message : JSON.stringify(anyErr.error);
+    } else if (typeof anyErr.error === 'string') {
+      raw = anyErr.error;
+    } else {
+      try {
+        raw = JSON.stringify(err);
+      } catch {
+        raw = String(err);
+      }
+    }
+  } else {
+    raw = String(err);
   }
-  if (raw.includes('403') || raw.includes('PERMISSION_DENIED') || raw.includes('API_KEY_INVALID')) {
-    return 'Khóa Gemini API không hợp lệ hoặc chưa được cấp quyền. Vui lòng kiểm tra lại khóa trong bảng Settings > Secrets.';
+
+  if (raw.includes('429') || raw.includes('RESOURCE_EXHAUSTED')) {
+    return 'Hạn mức API miễn phí (Free Tier quota) đã tạm thời hết. Bạn có thể bấm nút "API Key" trên thanh điều hướng để đổi sang khóa Gemini API khác.';
+  }
+  if (
+    raw.includes('403') ||
+    raw.includes('PERMISSION_DENIED') ||
+    raw.includes('API_KEY_INVALID') ||
+    raw.includes('API key not valid')
+  ) {
+    return 'Khóa Gemini API không hợp lệ hoặc chưa được kích hoạt. Vui lòng lấy khóa mới miễn phí tại aistudio.google.com/api-keys và nhập vào mục "API Key".';
   }
   if (raw.includes('404') || raw.includes('NOT_FOUND')) {
-    return 'Model AI được yêu cầu không khả dụng trên phiên bản API hiện tại.';
+    return 'Model AI được yêu cầu không khả dụng hoặc phiên bản đã được Google cập nhật.';
   }
   if (
     raw.includes('TimeoutError') ||
@@ -59,7 +86,7 @@ function formatGeminiError(err: unknown): string {
     raw.includes('AbortError') ||
     raw.includes('aborted')
   ) {
-    return 'Máy chủ AI phản hồi quá lâu (hết thời gian chờ). Vui lòng thử lại hoặc tách nhỏ tệp PDF/Audio theo từng Part.';
+    return 'Máy chủ AI phản hồi quá lâu (hết thời gian chờ). Vui lòng thử lại với tệp Audio/PDF có dung lượng nhỏ hơn.';
   }
   return raw || 'Không thể xử lý yêu cầu AI.';
 }
@@ -67,44 +94,38 @@ function formatGeminiError(err: unknown): string {
 async function generateWithFallback(
   ai: GoogleGenAI,
   params: Parameters<GoogleGenAI['models']['generateContent']>[0],
-  timeoutMs = 25000
+  timeoutMs = 45000
 ) {
-  const primaryConfig = {
-    ...(params.config || {}),
-    abortSignal: params.config?.abortSignal || AbortSignal.timeout(timeoutMs),
-  };
-  try {
-    return await ai.models.generateContent({
-      ...params,
-      config: primaryConfig,
-    });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const name = err instanceof Error ? err.name : '';
-    const shouldFallback =
-      msg.includes('429') ||
-      msg.includes('RESOURCE_EXHAUSTED') ||
-      msg.includes('503') ||
-      msg.includes('UNAVAILABLE') ||
-      msg.includes('timed out') ||
-      msg.includes('aborted') ||
-      name === 'TimeoutError' ||
-      name === 'AbortError';
-    if (shouldFallback && params.model === 'gemini-4-hydrogen') {
-      console.warn(`[gemini] fallback to gemini-3.1-flash-lite after error: ${msg}`);
-      const nextConfig = params.config ? { ...params.config } : {};
-      delete (nextConfig as { thinkingConfig?: unknown }).thinkingConfig;
+  const modelsToTry = [
+    params.model || 'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+  ];
+  const uniqueModels = Array.from(new Set(modelsToTry));
+
+  let lastError: unknown = null;
+  for (let i = 0; i < uniqueModels.length; i++) {
+    const currentModel = uniqueModels[i];
+    try {
+      const config = {
+        ...(params.config || {}),
+        abortSignal: params.config?.abortSignal || AbortSignal.timeout(timeoutMs),
+      };
+      if (i > 0 && (config as any).thinkingConfig) {
+        delete (config as any).thinkingConfig;
+      }
       return await ai.models.generateContent({
         ...params,
-        model: 'gemini-3.1-flash-lite',
-        config: {
-          ...nextConfig,
-          abortSignal: AbortSignal.timeout(timeoutMs),
-        },
+        model: currentModel,
+        config,
       });
+    } catch (err: unknown) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[gemini] Model ${currentModel} error: ${msg}. Retrying next fallback...`);
     }
-    throw err;
   }
+  throw lastError;
 }
 
 // Persistent disk + RAM storage for uploaded Audio, PDFs, and Test Packs
@@ -1282,6 +1303,7 @@ async function startServer() {
     rawText: string;
     customTitle: string;
     partLabel: string;
+    apiKey?: string;
     onProgress?: (stepLabel: string, progressPercent: number) => void;
   }
 
@@ -1291,6 +1313,7 @@ async function startServer() {
     rawText,
     customTitle,
     partLabel,
+    apiKey,
     onProgress,
   }: IngestInput): Promise<ListeningTestPack> {
     const cleanupFiles: string[] = [];
@@ -1300,7 +1323,7 @@ async function startServer() {
         `[ingest] start audio=${audioFile ? `${audioFile.originalname} (${audioFile.size}B)` : 'none'} pdf=${pdfFile ? `${pdfFile.originalname} (${pdfFile.size}B)` : 'none'} rawText=${rawText.length}chars`
       );
 
-      ai = getAiClient();
+      ai = getAiClient(apiKey);
       let audioUrl: string | undefined;
       let audioFileName: string | undefined;
       let pdfUrl: string | undefined;
@@ -1343,7 +1366,7 @@ async function startServer() {
 
           try {
             const trRes = await generateWithFallback(ai, {
-              model: 'gemini-4-hydrogen',
+              model: 'gemini-2.5-flash',
               contents: {
                 parts: [
                   audioPart,
@@ -1405,7 +1428,7 @@ async function startServer() {
           if (transcribedSegments.length === 0) {
             try {
               const plainTr = await generateWithFallback(ai, {
-                model: 'gemini-4-hydrogen',
+                model: 'gemini-2.5-flash',
                 contents: {
                   parts: [
                     audioPart,
@@ -1576,7 +1599,7 @@ ${needSegmentsFromStep2 ? '3. "segments": Tách lời thoại/script từ PDF ho
           }
 
           const structRes = await generateWithFallback(ai, {
-            model: 'gemini-4-hydrogen',
+            model: 'gemini-2.5-flash',
             contents: { parts: [...coreParts, { text: coreInstruction }] },
             config: {
               systemInstruction: MASTERMIND_SYSTEM_INSTRUCTION,
@@ -1631,7 +1654,7 @@ ${rawText ? `\nRaw Input Text:\n${rawText}\n` : ''}
 IMPORTANT: Do NOT leave "questions" empty. Extract up to 15 questions (or generate 6 IELTS Listening questions if only audio/script exists).`;
 
             const fbRes = await generateWithFallback(ai, {
-              model: 'gemini-4-hydrogen',
+              model: 'gemini-2.5-flash',
               contents: { parts: [...coreParts, { text: fallbackPrompt }] },
               config: {
                 thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -1693,7 +1716,7 @@ IMPORTANT: Do NOT leave "questions" empty. Extract up to 15 questions (or genera
                 .join('\n')}`,
             });
             const qGenRes = await generateWithFallback(ai, {
-              model: 'gemini-4-hydrogen',
+              model: 'gemini-2.5-flash',
               contents: { parts: genParts },
               config: {
                 thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -1763,7 +1786,7 @@ IMPORTANT: Do NOT leave "questions" empty. Extract up to 15 questions (or genera
 
             if (contextSnippet.trim()) {
               const enrichRes = await generateWithFallback(ai, {
-                model: 'gemini-4-hydrogen',
+                model: 'gemini-2.5-flash',
                 contents: `Từ nội dung bài nghe IELTS sau, hãy trích xuất:
 1. "vocabulary": 5–6 từ vựng học thuật/từ khóa quan trọng kèm IPA, pos, definitionVi, contextualMeaningVi (nghĩa tiếng Việt sát ngữ cảnh bài), definitionEn, exampleInAudio, exampleTranslationVi, timestampSec, isAwl=true.
 2. "intensiveDrills": 2 câu luyện nghe chép chuyên sâu từ bài kèm sentenceWithBlanks (dùng ___), missingPhrases ([{ answer, hintContext, letterMask }]), connectedSpeechNote, startSec, endSec.
@@ -2003,9 +2026,23 @@ ${contextSnippet}`,
       const partLabel =
         typeof req.body.partLabel === 'string' ? req.body.partLabel.trim() : 'Part 2';
 
+      const apiKey =
+        (req.headers['x-gemini-api-key'] as string) ||
+        (typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '') ||
+        process.env.GEMINI_API_KEY ||
+        '';
+
       if (!audioFile && !pdfFile && !rawText) {
         res.status(400).json({
           error: 'Vui lòng tải lên tệp Audio (MP3/WAV), tệp đề PDF, hoặc dán nội dung đề/transcript.',
+        });
+        return;
+      }
+
+      if (!apiKey) {
+        res.status(400).json({
+          error:
+            'Chưa có Gemini API Key. Vui lòng bấm vào nút "API Key (Lấy API key để sử dụng app)" trên thanh Header để nhập khóa Gemini API miễn phí của bạn.',
         });
         return;
       }
@@ -2024,6 +2061,7 @@ ${contextSnippet}`,
         rawText,
         customTitle,
         partLabel,
+        apiKey,
         onProgress: (stepLabel, progressPercent) => {
           job.stepLabel = stepLabel;
           job.progressPercent = progressPercent;
@@ -2076,9 +2114,23 @@ ${contextSnippet}`,
       const partLabel =
         typeof req.body.partLabel === 'string' ? req.body.partLabel.trim() : 'Part 2';
 
+      const apiKey =
+        (req.headers['x-gemini-api-key'] as string) ||
+        (typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '') ||
+        process.env.GEMINI_API_KEY ||
+        '';
+
       if (!audioFile && !pdfFile && !rawText) {
         res.status(400).json({
           error: 'Vui lòng tải lên tệp Audio (MP3/WAV), tệp đề PDF, hoặc dán nội dung đề/transcript.',
+        });
+        return;
+      }
+
+      if (!apiKey) {
+        res.status(400).json({
+          error:
+            'Chưa có Gemini API Key. Vui lòng bấm vào nút "API Key (Lấy API key để sử dụng app)" trên thanh Header để nhập khóa Gemini API miễn phí của bạn.',
         });
         return;
       }
@@ -2089,6 +2141,7 @@ ${contextSnippet}`,
         rawText,
         customTitle,
         partLabel,
+        apiKey,
       });
       res.json({ testPack });
     } catch (err: unknown) {
@@ -2146,7 +2199,12 @@ ${contextSnippet}`,
         }
       }
 
-      const ai = getAiClient();
+      const reqApiKey =
+        (req.headers['x-gemini-api-key'] as string) ||
+        (typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '') ||
+        process.env.GEMINI_API_KEY ||
+        '';
+      const ai = getAiClient(reqApiKey);
       const diagnosticPrompt = `Phân tích kết quả làm bài IELTS Listening của học viên dưới góc độ Chuyên gia Sư phạm Ngôn ngữ & Data Coach:
 - Bài thi: ${testPack.title} (${testPack.partLabel})
 - Thời gian làm bài: ${timeSpentSec} giây
@@ -2167,7 +2225,7 @@ ${testPack.segments
 Hãy tạo Phần 3 (Behavioral Insights) và Phần 5 (Action Plan) thật cụ thể, chỉ thẳng xu hướng lỗi (ví dụ: âm đuôi -s/-es, lỗi chính tả, mất tập trung khi gặp bẫy tự sửa lỗi, hay giới hạn từ) và đề xuất 2 đoạn Shadowing + 2 bài luyện Intensive kèm mốc timestampSec & timestampLabel chính xác từ danh sách trên.`;
 
       const aiRes = await generateWithFallback(ai, {
-        model: 'gemini-4-hydrogen',
+        model: 'gemini-2.5-flash',
         contents: diagnosticPrompt,
         config: {
           systemInstruction: MASTERMIND_SYSTEM_INSTRUCTION,
@@ -2307,7 +2365,12 @@ Hãy tạo Phần 3 (Behavioral Insights) và Phần 5 (Action Plan) thật cụ
         return;
       }
 
-      const ai = getAiClient();
+      const reqApiKey =
+        (req.headers['x-gemini-api-key'] as string) ||
+        (typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '') ||
+        process.env.GEMINI_API_KEY ||
+        '';
+      const ai = getAiClient(reqApiKey);
       const prompt = `Hãy đóng vai chuyên gia từ vựng học thuật IELTS Listening (Anh–Việt).
 Dịch và phân tích từ/cụm từ tiếng Anh sau theo ĐÚNG NGỮ CẢNH của bài nghe IELTS:
 - Từ/cụm từ: "${cleanWord}"
@@ -2325,7 +2388,7 @@ Yêu cầu trả về JSON chuẩn xác:
 - exampleTranslationVi: bản dịch tiếng Việt tự nhiên, chuẩn xác của exampleInAudio`;
 
       const aiRes = await generateWithFallback(ai, {
-        model: 'gemini-4-hydrogen',
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
           systemInstruction: MASTERMIND_SYSTEM_INSTRUCTION,
@@ -2472,7 +2535,7 @@ Với mỗi câu trong mảng "sentences", giữ giải thích ngắn gọn (<= 
       : [{ text: prompt }];
 
     const aiRes = await generateWithFallback(ai, {
-      model: 'gemini-4-hydrogen',
+      model: 'gemini-2.5-flash',
       contents: { parts },
       config: {
         systemInstruction: MASTERMIND_SYSTEM_INSTRUCTION,
@@ -2536,7 +2599,12 @@ Với mỗi câu trong mảng "sentences", giữ giải thích ngắn gọn (<= 
       }
 
       const targetCount = Math.min(30, Math.max(8, Number(count) || 12));
-      ai = getAiClient();
+      const reqApiKey =
+        (req.headers['x-gemini-api-key'] as string) ||
+        (typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '') ||
+        process.env.GEMINI_API_KEY ||
+        '';
+      ai = getAiClient(reqApiKey);
 
       const { classroomDrills, updatedSegments } = await extractClassroomDrillsWithAi({
         ai,
@@ -2579,7 +2647,12 @@ Với mỗi câu trong mảng "sentences", giữ giải thích ngắn gọn (<= 
         return;
       }
 
-      ai = getAiClient();
+      const reqApiKey =
+        (req.headers['x-gemini-api-key'] as string) ||
+        (typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '') ||
+        process.env.GEMINI_API_KEY ||
+        '';
+      ai = getAiClient(reqApiKey);
       const parts: GeminiPart[] = [];
 
       if (testPack.pdfUrl?.startsWith('/api/ielts/pdf/')) {
@@ -2606,7 +2679,7 @@ Với mỗi câu trong mảng "sentences", giữ giải thích ngắn gọn (<= 
       });
 
       const qRes = await generateWithFallback(ai, {
-        model: 'gemini-4-hydrogen',
+        model: 'gemini-2.5-flash',
         contents: { parts },
         config: {
           systemInstruction: MASTERMIND_SYSTEM_INSTRUCTION,
@@ -2734,7 +2807,12 @@ Với mỗi câu trong mảng "sentences", giữ giải thích ngắn gọn (<= 
         return;
       }
 
-      const ai = getAiClient();
+      const reqApiKey =
+        (req.headers['x-gemini-api-key'] as string) ||
+        (typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '') ||
+        process.env.GEMINI_API_KEY ||
+        '';
+      const ai = getAiClient(reqApiKey);
       const prompt = `Bạn là một Cựu Giám khảo / Chuyên gia Sư phạm IELTS Listening hàng đầu (AI IELTS Listening Master Coach), nói tiếng Việt chuẩn mực, giàu tính khích lệ, phân tích sắc bén và sư phạm.
 
 NGỮ CẢNH BÀI THI & CÂU HỎI:
@@ -2763,7 +2841,7 @@ HƯỚNG DẪN TRẢ LỜI CỦA GIA SƯ:
 4. Trả lời bằng tiếng Việt tự nhiên, có điểm xuyết các thuật ngữ học thuật tiếng Anh trong bài. Định dạng Markdown rõ ràng, gạch đầu dòng các ý chính, không lan man.`;
 
       const aiRes = await generateWithFallback(ai, {
-        model: 'gemini-4-hydrogen',
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
           systemInstruction: MASTERMIND_SYSTEM_INSTRUCTION,
