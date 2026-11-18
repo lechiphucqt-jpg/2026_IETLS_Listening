@@ -159,11 +159,32 @@ async function getCandidateTargets(apiKey: string): Promise<SupportedModelTarget
   const candidates: SupportedModelTarget[] = [];
   const seen = new Set<string>();
 
+  // 0. User chosen preferred model from Settings modal (if any)
+  try {
+    const userPreferredModel = typeof window !== 'undefined' ? localStorage.getItem('GEMINI_MODEL') : null;
+    if (userPreferredModel) {
+      const cleanPref = userPreferredModel.replace(/^models\//, '').trim();
+      if (cleanPref) {
+        for (const v of ['v1', 'v1beta'] as const) {
+          const key = `${v}:${cleanPref}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            candidates.push({ version: v, modelName: cleanPref });
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   // Prioritize cached working target
   if (workingTargetCache && lastApiKeyCache === cleanKey) {
     const key = `${workingTargetCache.version}:${workingTargetCache.modelName}`;
-    seen.add(key);
-    candidates.push(workingTargetCache);
+    if (!seen.has(key)) {
+      seen.add(key);
+      candidates.push(workingTargetCache);
+    }
   }
 
   // Dynamic discovery from Google AI Studio
