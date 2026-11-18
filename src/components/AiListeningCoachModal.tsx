@@ -105,35 +105,42 @@ Bạn có thắc mắc gì về lý do chọn đáp án, cách người nói gi�
 
       const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
       let reply = '';
+      const isLocalhost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.port === '3000');
 
-      try {
-        const res = await fetch('/api/ielts/coach-chat', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
-          },
-          body: JSON.stringify({
-            testTitle,
-            partLabel,
-            question,
-            userAnswer,
-            message: content,
-            history,
-            apiKey,
-          }),
-        });
+      if (isLocalhost) {
+        try {
+          const res = await fetch('/api/ielts/coach-chat', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
+            },
+            body: JSON.stringify({
+              testTitle,
+              partLabel,
+              question,
+              userAnswer,
+              message: content,
+              history,
+              apiKey,
+            }),
+          });
 
-        if (res.ok) {
-          const data = (await res.json()) as { reply?: string; error?: string };
-          if (data.reply) {
-            reply = data.reply;
+          if (res.ok) {
+            const data = (await res.json()) as { reply?: string; error?: string };
+            if (data.reply) {
+              reply = data.reply;
+            }
           }
+        } catch {
+          // Fallback to client-side direct Gemini
         }
-      } catch {
-        // Fallback to client-side direct Gemini
       }
 
       if (!reply) {

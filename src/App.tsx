@@ -624,30 +624,37 @@ export default function App() {
     try {
       let report: PedagogicalReport | undefined;
       const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
+      const isLocalhost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.port === '3000');
 
-      try {
-        const res = await fetch('/api/ielts/analyze', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({
-            testPack: activeTest,
-            userAnswers,
-            timeSpentSec: elapsedSec,
-          }),
-        });
+      if (isLocalhost) {
+        try {
+          const res = await fetch('/api/ielts/analyze', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({
+              testPack: activeTest,
+              userAnswers,
+              timeSpentSec: elapsedSec,
+            }),
+          });
 
-        if (res.ok) {
-          const data = await safeParseJsonResponse<{
-            report?: PedagogicalReport;
-            error?: string;
-          }>(res, 'Không thể tạo báo cáo phân tích AI.');
-          if (data.report) {
-            report = data.report;
+          if (res.ok) {
+            const data = await safeParseJsonResponse<{
+              report?: PedagogicalReport;
+              error?: string;
+            }>(res, 'Không thể tạo báo cáo phân tích AI.');
+            if (data.report) {
+              report = data.report;
+            }
           }
+        } catch {
+          // Fallback to client-side
         }
-      } catch {
-        // Fallback to client-side
       }
 
       if (!report) {

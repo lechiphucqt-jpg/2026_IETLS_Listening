@@ -83,113 +83,15 @@ export const IngestModal: React.FC<IngestModalProps> = ({
       }
 
       let finalPack: ListeningTestPack | undefined;
-      let shouldUseClientFallback = false;
+      const isLocalhost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.port === '3000');
 
-      // 1. First attempt: call local server if available
-      try {
-        const formData = new FormData();
-        formData.append('title', title);
-        formData.append('partLabel', partLabel);
-        formData.append('rawText', rawText);
-        if (apiKey) formData.append('apiKey', apiKey);
-        if (audioFile) formData.append('audio', audioFile);
-        if (pdfFile) formData.append('pdf', pdfFile);
-
-        const startRes = await fetch('/api/ielts/ingest/start', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {
-            Accept: 'application/json',
-            ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
-          },
-          body: formData,
-        });
-
-        if (startRes.status === 404) {
-          shouldUseClientFallback = true;
-        } else {
-          const startData = await safeParseJsonResponse<IngestJobStatusResponse>(
-            startRes,
-            'Không thể khởi tạo phiên xử lý đề thi.'
-          );
-
-          if (!startData.jobId) {
-            if (startData.testPack) {
-              finalPack = startData.testPack;
-            } else {
-              throw new Error(extractErrorMessage(startData.error, 'Máy chủ không trả về mã phiên xử lý.'));
-            }
-          } else {
-            if (startData.stepLabel) setProgressLabel(startData.stepLabel);
-            if (typeof startData.progressPercent === 'number') {
-              setProgressPercent(startData.progressPercent);
-            }
-
-            // Poll job status until completion (max ~3 minutes)
-            let transientFailures = 0;
-            const maxPolls = 150;
-
-            for (let i = 0; i < maxPolls; i++) {
-              await new Promise((resolve) => setTimeout(resolve, 1200));
-
-              try {
-                const statusRes = await fetch(
-                  `/api/ielts/ingest/status/${encodeURIComponent(startData.jobId)}`,
-                  {
-                    method: 'GET',
-                    credentials: 'same-origin',
-                    headers: {
-                      Accept: 'application/json',
-                      ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
-                    },
-                    cache: 'no-store',
-                  }
-                );
-
-                const statusData = await safeParseJsonResponse<IngestJobStatusResponse>(
-                  statusRes,
-                  'Không thể kiểm tra tiến trình xử lý.'
-                );
-
-                transientFailures = 0;
-                if (statusData.stepLabel) setProgressLabel(statusData.stepLabel);
-                if (typeof statusData.progressPercent === 'number') {
-                  setProgressPercent(statusData.progressPercent);
-                }
-
-                if (statusData.status === 'done' && statusData.testPack) {
-                  finalPack = statusData.testPack;
-                  break;
-                }
-                if (statusData.status === 'error') {
-                  throw new Error(extractErrorMessage(statusData.error, 'Không thể xử lý dữ liệu tải lên.'));
-                }
-              } catch (pollErr: unknown) {
-                const msg = extractErrorMessage(pollErr, '');
-                const isTransientNetwork =
-                  pollErr instanceof TypeError ||
-                  msg.includes('Failed to fetch') ||
-                  msg.includes('NetworkError');
-                if (!isTransientNetwork || transientFailures >= 3) {
-                  throw pollErr;
-                }
-                transientFailures++;
-              }
-            }
-          }
-        }
-      } catch (err: unknown) {
-        const msg = extractErrorMessage(err, '');
-        if (msg.includes('404') || msg.includes('could not be found') || msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-          shouldUseClientFallback = true;
-        } else {
-          throw err;
-        }
-      }
-
-      // 2. Fallback attempt: Run direct client-side Gemini AI in the browser (works 100% on Vercel without a backend)
-      if (shouldUseClientFallback && !finalPack) {
-        setProgressLabel('Đang kết nối Gemini AI trực tiếp từ trình duyệt...');
+      if (!isLocalhost) {
+        // Direct Client-Side Gemini AI (Zero server dependencies, 100% reliable on Vercel)
+        setProgressLabel('Đang đọc tệp & kết nối Gemini AI trực tiếp từ trình duyệt...');
         setProgressPercent(15);
         finalPack = await processIngestClientSide({
           audioFile,
@@ -203,11 +105,106 @@ export const IngestModal: React.FC<IngestModalProps> = ({
             setProgressPercent(percent);
           },
         });
+      } else {
+        // On localhost: try local Express server first, with automatic fallback
+        try {
+          const formData = new FormData();
+          formData.append('title', title);
+          formData.append('partLabel', partLabel);
+          formData.append('rawText', rawText);
+          if (apiKey) formData.append('apiKey', apiKey);
+          if (audioFile) formData.append('audio', audioFile);
+          if (pdfFile) formData.append('pdf', pdfFile);
+
+          const startRes = await fetch('/api/ielts/ingest/start', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              Accept: 'application/json',
+              ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
+            },
+            body: formData,
+          });
+
+          if (startRes.ok) {
+            const startData = await safeParseJsonResponse<IngestJobStatusResponse>(
+              startRes,
+              'Không thể khởi tạo phiên xử lý đề thi.'
+            );
+
+            if (startData.jobId) {
+              if (startData.stepLabel) setProgressLabel(startData.stepLabel);
+              if (typeof startData.progressPercent === 'number') {
+                setProgressPercent(startData.progressPercent);
+              }
+
+              // Poll job status until completion
+              const maxPolls = 150;
+              for (let i = 0; i < maxPolls; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 1200));
+                try {
+                  const statusRes = await fetch(
+                    `/api/ielts/ingest/status/${encodeURIComponent(startData.jobId)}`,
+                    {
+                      method: 'GET',
+                      credentials: 'same-origin',
+                      headers: {
+                        Accept: 'application/json',
+                        ...(apiKey ? { 'x-gemini-api-key': apiKey } : {}),
+                      },
+                      cache: 'no-store',
+                    }
+                  );
+                  if (statusRes.ok) {
+                    const statusData = await safeParseJsonResponse<IngestJobStatusResponse>(
+                      statusRes,
+                      'Không thể kiểm tra tiến trình xử lý.'
+                    );
+                    if (statusData.stepLabel) setProgressLabel(statusData.stepLabel);
+                    if (typeof statusData.progressPercent === 'number') {
+                      setProgressPercent(statusData.progressPercent);
+                    }
+                    if (statusData.status === 'done' && statusData.testPack) {
+                      finalPack = statusData.testPack;
+                      break;
+                    }
+                    if (statusData.status === 'error') {
+                      throw new Error(extractErrorMessage(statusData.error, 'Không thể xử lý dữ liệu tải lên.'));
+                    }
+                  }
+                } catch {
+                  // retry
+                }
+              }
+            } else if (startData.testPack) {
+              finalPack = startData.testPack;
+            }
+          }
+        } catch {
+          // Local server failed, fall back to client-side
+        }
+
+        if (!finalPack) {
+          setProgressLabel('Đang xử lý trực tiếp bằng Gemini AI qua trình duyệt...');
+          setProgressPercent(15);
+          finalPack = await processIngestClientSide({
+            audioFile,
+            pdfFile,
+            rawText,
+            title,
+            partLabel,
+            apiKey,
+            onProgress: (step, percent) => {
+              setProgressLabel(step);
+              setProgressPercent(percent);
+            },
+          });
+        }
       }
 
       if (!finalPack) {
         throw new Error(
-          'Quá thời gian xử lý tệp. Vui lòng thử tách nhỏ tệp PDF/Audio theo từng Part rồi tải lại.'
+          'Không thể xử lý tệp. Vui lòng kiểm tra lại khóa Gemini API Key hoặc thử với tệp nhỏ hơn.'
         );
       }
 
