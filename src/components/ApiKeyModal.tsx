@@ -13,14 +13,14 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   onSaved,
 }) => {
   const [apiKey, setApiKey] = useState('');
-  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
+  const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash');
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       const stored = localStorage.getItem('GEMINI_API_KEY') || '';
       setApiKey(stored);
-      const storedModel = localStorage.getItem('GEMINI_MODEL') || 'gemini-2.5-flash';
+      const storedModel = localStorage.getItem('GEMINI_MODEL') || 'gemini-2.0-flash';
       setSelectedModel(storedModel);
       setSavedSuccess(false);
     }
@@ -126,9 +126,9 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
             </label>
             <div className="grid grid-cols-3 gap-2">
               {[
-                { id: 'gemini-2.5-flash', name: '2.5 Flash', badge: 'Mặc định' },
-                { id: 'gemini-2.0-flash', name: '2.0 Flash', badge: 'Nhanh' },
-                { id: 'gemini-1.5-flash', name: '1.5 Flash', badge: 'Ổn định' },
+                { id: 'gemini-2.0-flash', name: '2.0 Flash', badge: 'Mặc định (Nhanh)' },
+                { id: 'gemini-1.5-flash', name: '1.5 Flash', badge: 'Hạn mức cao (Ổn định)' },
+                { id: 'gemini-2.5-flash', name: '2.5 Flash', badge: 'Bản mới' },
               ].map((m) => (
                 <button
                   key={m.id}

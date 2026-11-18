@@ -75,39 +75,35 @@ let lastApiKeyCache = '';
 
 function scoreModelName(name: string): number {
   const lower = name.toLowerCase();
-  if (lower.includes('2.0-flash') && !lower.includes('lite')) return 110;
-  if (lower.includes('2.0-flash-exp')) return 105;
-  if (lower === 'gemini-1.5-flash' || lower === 'models/gemini-1.5-flash') return 100;
-  if (lower.includes('1.5-flash-002') || lower.includes('1.5-flash-001')) return 98;
-  if (lower.includes('1.5-flash-latest')) return 95;
-  if (lower.includes('1.5-flash')) return 90;
-  if (lower.includes('1.5-flash-8b')) return 85;
+  // 2.0 Flash and 1.5 Flash have the highest quotas (1M - 4M TPM) on Free Tier
+  if (lower.includes('2.0-flash') && !lower.includes('lite') && !lower.includes('exp')) return 120;
+  if (lower === 'gemini-1.5-flash' || lower === 'models/gemini-1.5-flash') return 115;
+  if (lower.includes('1.5-flash-002') || lower.includes('1.5-flash-001')) return 110;
+  if (lower.includes('1.5-flash-latest')) return 108;
+  if (lower.includes('1.5-flash-8b')) return 105;
+  if (lower.includes('1.5-flash')) return 100;
+  if (lower.includes('2.0-flash-exp')) return 95;
+  if (lower.includes('2.5-flash')) return 90;
   if (lower.includes('2.0-pro')) return 80;
-  if (lower === 'gemini-1.5-pro' || lower === 'models/gemini-1.5-pro') return 75;
-  if (lower.includes('1.5-pro-002') || lower.includes('1.5-pro-001')) return 74;
-  if (lower.includes('1.5-pro-latest') || lower.includes('1.5-pro')) return 70;
+  if (lower.includes('1.5-pro')) return 70;
   if (lower.includes('flash')) return 65;
   if (lower.includes('pro')) return 60;
   return 40;
 }
 
 const STATIC_CANDIDATES: SupportedModelTarget[] = [
-  // v1 (stable production endpoint)
+  // High-quota Flash models first to avoid 429 RESOURCE_EXHAUSTED
   { version: 'v1', modelName: 'gemini-1.5-flash' },
+  { version: 'v1beta', modelName: 'gemini-2.0-flash' },
   { version: 'v1', modelName: 'gemini-1.5-flash-latest' },
+  { version: 'v1beta', modelName: 'gemini-1.5-flash' },
+  { version: 'v1beta', modelName: 'gemini-1.5-flash-8b' },
   { version: 'v1', modelName: 'gemini-1.5-flash-001' },
   { version: 'v1', modelName: 'gemini-1.5-flash-002' },
-  { version: 'v1', modelName: 'gemini-1.5-pro' },
-  { version: 'v1', modelName: 'gemini-1.5-pro-latest' },
-  // v1beta (experimental & newest models)
-  { version: 'v1beta', modelName: 'gemini-2.0-flash' },
-  { version: 'v1beta', modelName: 'gemini-1.5-flash' },
-  { version: 'v1beta', modelName: 'gemini-1.5-flash-latest' },
   { version: 'v1beta', modelName: 'gemini-2.0-flash-exp' },
-  { version: 'v1beta', modelName: 'gemini-1.5-flash-002' },
-  { version: 'v1beta', modelName: 'gemini-1.5-flash-8b' },
+  { version: 'v1beta', modelName: 'gemini-2.5-flash' },
+  { version: 'v1', modelName: 'gemini-1.5-pro' },
   { version: 'v1beta', modelName: 'gemini-1.5-pro' },
-  { version: 'v1beta', modelName: 'gemini-1.5-pro-latest' },
   { version: 'v1', modelName: 'gemini-pro' },
 ];
 
@@ -325,11 +321,13 @@ export async function callGeminiDirect(
             );
           }
 
-          // Rate limit
+          // Rate limit handling: auto-switch to next candidate model with a short backoff
           if (res.status === 429 || rawErrMsg.includes('RESOURCE_EXHAUSTED')) {
-            throw new Error(
-              'Hạn mức API miễn phí (Free Tier) tạm thời hết lượt gọi. Vui lòng đợi 30 giây hoặc đổi sang khóa Gemini API khác.'
-            );
+            console.warn(`[Gemini Rate Limit] Model ${modelName} (${version}) chạm hạn mức (429). Đang tự động chuyển sang model tiếp theo...`);
+            workingTargetCache = null;
+            // Short backoff before trying next candidate model
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            break; // Break config loop, try next model candidate in list!
           }
 
           // If responseMimeType or systemInstruction caused 400, downgrade to next config
@@ -380,6 +378,12 @@ export async function callGeminiDirect(
         break;
       }
     }
+  }
+
+  if (lastError && (lastError.message.includes('RESOURCE_EXHAUSTED') || lastError.message.includes('429'))) {
+    throw new Error(
+      'Hạn mức gọi của tất cả model Gemini Free Tier tạm thời hết lượt. Vui lòng đợi 30 giây rồi bấm thử lại, hoặc dùng một khóa Gemini API khác.'
+    );
   }
 
   throw (
@@ -501,6 +505,10 @@ Return ONLY a valid JSON object matching this schema:
         .map((s) => `${s.timestampLabel} ${s.speaker}: ${s.text}`)
         .join('\n');
     }
+
+    // Short pause to avoid burst rate limit on Google AI Studio Free Tier
+    onProgress?.('Đang hoàn tất phân tích âm thanh, chuyển sang đề thi...', 55);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
   // Step 2: Extract Exam Questions & Match with Transcript
