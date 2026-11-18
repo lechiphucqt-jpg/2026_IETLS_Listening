@@ -988,3 +988,306 @@ Trả về JSON:
     },
   };
 }
+
+export interface ExtractClassroomDrillsInput {
+  apiKey: string;
+  testPack: ListeningTestPack;
+  targetCount: number;
+}
+
+export function fallbackAlgorithmicDrills(
+  testPack: ListeningTestPack,
+  targetCount: number
+): ClassroomDrillSentence[] {
+  const segs = (testPack.segments || []).filter((s) => (s.text || '').trim().length > 10);
+  if (segs.length === 0) return [];
+  const limit = Math.min(segs.length, Math.max(3, targetCount));
+  const step = Math.max(1, Math.floor(segs.length / limit));
+  const picked = segs.filter((_, idx) => idx % step === 0).slice(0, limit);
+
+  return picked.map((seg, idx) => {
+    const words = seg.text.split(/\s+/).filter(Boolean);
+    const keyWords = words
+      .filter((w) => w.length > 5)
+      .slice(0, 3)
+      .map((w) => w.replace(/[.,!?;:"“”()]/g, ''));
+    return {
+      id: `drill_${testPack.id}_${idx + 1}`,
+      order: idx + 1,
+      speaker: seg.speaker || 'Speaker',
+      sentence: seg.text,
+      translationVi: 'Nhấn để nghe câu và luyện chép chính tả.',
+      startSec: seg.startSec,
+      endSec: seg.endSec,
+      timestampLabel: seg.timestampLabel || formatTimestampLabel(seg.startSec),
+      selectionReasonVi: `Trích đoạn câu ${idx + 1} từ bài nghe`,
+      stressPattern: seg.stressPattern || 'Nhấn vào các từ mang nội dung chính',
+      connectedSpeechNote: seg.intonationNote || 'Chú ý các âm nối giữa phụ âm cuối và nguyên âm đầu',
+      keyWords,
+    };
+  });
+}
+
+export async function extractClassroomDrillsClientSide(
+  input: ExtractClassroomDrillsInput
+): Promise<{
+  classroomDrills: ClassroomDrillSentence[];
+  updatedSegments?: TranscriptSegment[];
+}> {
+  const { apiKey, testPack, targetCount } = input;
+  const granularSegments = testPack.segments || [];
+
+  if (granularSegments.length === 0) {
+    return { classroomDrills: [] };
+  }
+
+  const cleanKey = apiKey?.trim();
+  const extractAllMode = targetCount >= 25;
+
+  if (cleanKey) {
+    try {
+      const prompt = `Từ Transcript bài nghe "${testPack.title}" (${testPack.partLabel}), ${
+        extractAllMode
+          ? 'tách TẤT CẢ các câu đơn / câu phức hoàn chỉnh theo trình tự thời gian (tối đa 30 câu)'
+          : `tách và trích xuất ĐÚNG ${targetCount} CÂU ĐƠN / CÂU PHỨC HOÀN CHỈNH (7–28 từ/câu) hay nhất theo đúng trình tự thời gian`
+      } để học sinh luyện Dictation và Shadowing từng câu.
+
+QUY TẮC BẮT BUỘC:
+1. MỖI MỤC LÀ 1 CÂU HOÀN CHỈNH, CHÍNH XÁC NGUYÊN VĂN nghe được trong Audio.
+2. Tên 1 người nói cụ thể (speaker).
+3. Mốc thời gian startSec và endSec chuẩn xác tăng dần theo bài.
+4. Có nghĩa tiếng Việt sát ngữ cảnh (translationVi).
+5. Trọng âm chính (stressPattern) và âm nối/nuốt âm (connectedSpeechNote).
+6. 2-3 từ khóa nổi bật (keyWords).
+7. Lý do chọn câu này (selectionReasonVi).
+
+--- TRANSCRIPT THAM KHẢO ---
+${granularSegments
+  .map(
+    (seg, idx) =>
+      `[${idx}] ${seg.timestampLabel} (${seg.startSec.toFixed(1)}s-${seg.endSec.toFixed(1)}s) ${seg.speaker}: "${seg.text}"`
+  )
+  .join('\n')}
+
+Trả về JSON:
+{
+  "sentences": [
+    {
+      "order": 1,
+      "speaker": "...",
+      "startSec": 0,
+      "endSec": 8.5,
+      "sentence": "...",
+      "translationVi": "...",
+      "selectionReasonVi": "...",
+      "stressPattern": "...",
+      "connectedSpeechNote": "...",
+      "keyWords": ["...", "..."]
+    }
+  ]
+}`;
+
+      const aiText = await callGeminiDirect(cleanKey, [{ text: prompt }], {
+        responseMimeType: 'application/json',
+      });
+      const parsed = JSON.parse(cleanJsonFences(aiText));
+
+      if (Array.isArray(parsed.sentences) && parsed.sentences.length > 0) {
+        const drills: ClassroomDrillSentence[] = parsed.sentences.map((s: any, idx: number) => {
+          const startSec = Number.isFinite(s.startSec) ? Number(s.startSec) : idx * 8;
+          const endSec =
+            Number.isFinite(s.endSec) && Number(s.endSec) > startSec ? Number(s.endSec) : startSec + 7;
+          return {
+            id: `drill_${Date.now()}_${idx + 1}`,
+            order: s.order || idx + 1,
+            speaker: s.speaker || 'Speaker',
+            sentence: (s.sentence || '').trim(),
+            translationVi: s.translationVi || '',
+            startSec,
+            endSec,
+            timestampLabel: formatTimestampLabel(startSec),
+            selectionReasonVi:
+              s.selectionReasonVi || 'Câu tiêu biểu chứa cấu trúc ngữ pháp và từ vựng học thuật',
+            stressPattern: s.stressPattern || '',
+            connectedSpeechNote: s.connectedSpeechNote || '',
+            keyWords: Array.isArray(s.keyWords)
+              ? s.keyWords
+              : typeof s.keyWords === 'string'
+                ? s.keyWords.split(',').map((w: string) => w.trim()).filter(Boolean)
+                : [],
+          };
+        });
+
+        return {
+          classroomDrills: drills,
+          updatedSegments: granularSegments,
+        };
+      }
+    } catch (err) {
+      console.warn('[extractClassroomDrillsClientSide] AI call failed, falling back to algorithmic extraction:', err);
+    }
+  }
+
+  // Graceful algorithmic fallback if no API key or AI call fails
+  const fallbackDrills = fallbackAlgorithmicDrills(testPack, targetCount);
+  return {
+    classroomDrills: fallbackDrills,
+    updatedSegments: granularSegments,
+  };
+}
+
+export async function translateVocabClientSide(input: {
+  apiKey: string;
+  word: string;
+  sentenceContext: string;
+  testTitle?: string;
+  topic?: string;
+  timestampSec?: number;
+  timestampLabel?: string;
+}): Promise<AwlVocabItem> {
+  const cleanWord = input.word.trim();
+  const ts = typeof input.timestampSec === 'number' ? input.timestampSec : 0;
+  const tsLabel = input.timestampLabel || formatTimestampLabel(ts);
+
+  if (input.apiKey && input.apiKey.trim()) {
+    try {
+      const prompt = `Hãy đóng vai chuyên gia từ vựng học thuật IELTS Listening (Anh–Việt).
+Dịch và phân tích từ/cụm từ tiếng Anh sau theo ĐÚNG NGỮ CẢNH của bài nghe IELTS:
+- Từ/cụm từ: "${cleanWord}"
+- Bài nghe: ${input.testTitle || 'IELTS Listening Practice'} (${input.topic || 'Academic / General'})
+- Câu ngữ cảnh trong audio: "${input.sentenceContext || cleanWord}"
+
+Trả về JSON:
+{
+  "word": "${cleanWord}",
+  "ipa": "/.../",
+  "pos": "noun / verb / adj...",
+  "definitionVi": "nghĩa phổ thông",
+  "contextualMeaningVi": "nghĩa sát ngữ cảnh bài nghe",
+  "definitionEn": "English definition",
+  "exampleInAudio": "câu ngữ cảnh",
+  "exampleTranslationVi": "dịch câu ngữ cảnh"
+}`;
+
+      const res = await callGeminiDirect(input.apiKey, [{ text: prompt }], {
+        responseMimeType: 'application/json',
+      });
+      const parsed = JSON.parse(cleanJsonFences(res));
+      return {
+        word: parsed.word || cleanWord,
+        ipa: parsed.ipa || '',
+        pos: parsed.pos || 'word',
+        definitionVi: parsed.definitionVi || '',
+        contextualMeaningVi: parsed.contextualMeaningVi || parsed.definitionVi || '',
+        definitionEn: parsed.definitionEn || '',
+        exampleInAudio: parsed.exampleInAudio || input.sentenceContext || '',
+        exampleTranslationVi: parsed.exampleTranslationVi || '',
+        timestampSec: ts,
+        timestampLabel: tsLabel,
+        isAwl: true,
+      };
+    } catch (err) {
+      console.warn('[translateVocabClientSide] Gemini call failed, using fallback:', err);
+    }
+  }
+
+  return {
+    word: cleanWord,
+    ipa: '',
+    pos: 'word',
+    definitionVi: cleanWord,
+    contextualMeaningVi: cleanWord,
+    definitionEn: '',
+    exampleInAudio: input.sentenceContext || cleanWord,
+    exampleTranslationVi: '',
+    timestampSec: ts,
+    timestampLabel: tsLabel,
+    isAwl: true,
+  };
+}
+
+export async function generateQuestionsClientSide(input: {
+  apiKey: string;
+  testPack: ListeningTestPack;
+}): Promise<IeltsQuestion[]> {
+  const { apiKey, testPack } = input;
+  if (apiKey && apiKey.trim()) {
+    try {
+      const prompt = `Bạn là Chuyên gia Khảo thí IELTS Quốc tế.
+Dựa vào Transcript sau của bài nghe "${testPack.title}" (${testPack.partLabel}):
+${(testPack.segments || []).slice(0, 35).map((s) => `${s.timestampLabel} ${s.speaker}: ${s.text}`).join('\n')}
+
+Hãy tạo 6-10 câu hỏi IELTS Listening chuẩn IDP (dạng completion hoặc mcq) bao gồm đáp án chuẩn, mốc giây timestampSec xuất hiện đáp án, biến đổi paraphrase, loại bẫy distractor và giải thích tiếng Việt.
+
+Trả về JSON:
+{
+  "questions": [
+    {
+      "number": 1,
+      "type": "completion",
+      "prompt": "...",
+      "wordLimitInstruction": "NO MORE THAN TWO WORDS",
+      "correctAnswer": "...",
+      "timestampSec": 15.5,
+      "paraphraseQuestion": "...",
+      "paraphraseTranscript": "...",
+      "distractorType": "Distractor",
+      "distractorDetail": "...",
+      "transcriptQuote": "...",
+      "explanationVi": "..."
+    }
+  ]
+}`;
+
+      const res = await callGeminiDirect(apiKey, [{ text: prompt }], {
+        responseMimeType: 'application/json',
+      });
+      const parsed = JSON.parse(cleanJsonFences(res));
+      if (Array.isArray(parsed.questions) && parsed.questions.length > 0) {
+        return parsed.questions.map((q: any, idx: number) => {
+          const ts = Number.isFinite(q.timestampSec) ? Number(q.timestampSec) : idx * 15;
+          return {
+            number: q.number || idx + 1,
+            type: q.type || 'completion',
+            prompt: q.prompt || `Câu hỏi ${idx + 1}`,
+            contextBefore: q.contextBefore,
+            contextAfter: q.contextAfter,
+            wordLimitInstruction: q.wordLimitInstruction || 'NO MORE THAN TWO WORDS',
+            options: q.options || [],
+            correctAnswer: q.correctAnswer || '',
+            acceptedVariants: q.acceptedVariants || [],
+            timestampSec: ts,
+            timestampLabel: formatTimestampLabel(ts),
+            paraphraseQuestion: q.paraphraseQuestion || '',
+            paraphraseTranscript: q.paraphraseTranscript || '',
+            distractorType: q.distractorType || 'None',
+            distractorDetail: q.distractorDetail || '',
+            transcriptQuote: q.transcriptQuote || '',
+            explanationVi: q.explanationVi || 'Đối chiếu trực tiếp với bài nghe.',
+            errorCategoryHint: q.errorCategoryHint || 'Distractor',
+          };
+        });
+      }
+    } catch (err) {
+      console.warn('[generateQuestionsClientSide] AI generation failed:', err);
+    }
+  }
+
+  // Fallback if no API key or AI call fails
+  return (testPack.segments || []).slice(0, 6).map((s, idx) => ({
+    number: idx + 1,
+    type: 'completion',
+    prompt: `Complete the sentence from ${s.speaker}: ____`,
+    wordLimitInstruction: 'NO MORE THAN THREE WORDS',
+    correctAnswer: s.text.split(' ').slice(0, 3).join(' '),
+    timestampSec: s.startSec,
+    timestampLabel: s.timestampLabel || formatTimestampLabel(s.startSec),
+    paraphraseQuestion: s.speaker,
+    paraphraseTranscript: s.speaker,
+    distractorType: 'None',
+    distractorDetail: '',
+    transcriptQuote: s.text,
+    explanationVi: `Thông tin xuất hiện ở đoạn ${s.timestampLabel}.`,
+    errorCategoryHint: 'Distractor',
+  }));
+}

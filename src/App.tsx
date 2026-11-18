@@ -23,7 +23,12 @@ import { LocalFilesManagerModal } from './components/LocalFilesManagerModal';
 import { uploadTestToGoogleDrive } from './utils/googleDriveSync';
 import { safeParseJsonResponse } from './utils/safeFetchJson';
 import { useDisplaySettings } from './utils/useDisplaySettings';
-import { generatePedagogicalReportClientSide } from './utils/clientGemini';
+import {
+  generatePedagogicalReportClientSide,
+  extractClassroomDrillsClientSide,
+  translateVocabClientSide,
+  generateQuestionsClientSide,
+} from './utils/clientGemini';
 import {
   deleteMediaForTest,
   exportTestPackage,
@@ -911,42 +916,69 @@ export default function App() {
       timestampSec = 0,
       timestampLabel = '[00:00.00]'
     ): Promise<AwlVocabItem> => {
-      const res = await fetch('/api/ielts/translate-vocab', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
+      const isLocalhost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.port === '3000');
+      const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
+
+      let newItem: AwlVocabItem | undefined;
+
+      if (isLocalhost) {
+        try {
+          const res = await fetch('/api/ielts/translate-vocab', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({
+              word,
+              sentenceContext,
+              testTitle: activeTest.title,
+              topic: activeTest.topic,
+            }),
+          });
+          if (res.ok) {
+            const data = await safeParseJsonResponse<{
+              vocabItem?: Omit<AwlVocabItem, 'timestampSec' | 'timestampLabel' | 'isAwl'>;
+              error?: string;
+            }>(res, 'Máy chủ trả về phản hồi không hợp lệ khi dịch từ vựng.');
+            if (data.vocabItem) {
+              newItem = {
+                ...data.vocabItem,
+                timestampSec,
+                timestampLabel,
+                isAwl: true,
+              };
+            }
+          }
+        } catch {
+          // Fallback to client-side
+        }
+      }
+
+      if (!newItem) {
+        newItem = await translateVocabClientSide({
+          apiKey,
           word,
           sentenceContext,
           testTitle: activeTest.title,
           topic: activeTest.topic,
-        }),
-      });
-      const data = await safeParseJsonResponse<{
-        vocabItem?: Omit<AwlVocabItem, 'timestampSec' | 'timestampLabel' | 'isAwl'>;
-        error?: string;
-      }>(res, 'Máy chủ trả về phản hồi không hợp lệ khi dịch từ vựng.');
-      if (!data.vocabItem) {
-        throw new Error(data.error || 'Không thể dịch từ vựng theo ngữ cảnh.');
+          timestampSec,
+          timestampLabel,
+        });
       }
-
-      const newItem: AwlVocabItem = {
-        ...data.vocabItem,
-        timestampSec,
-        timestampLabel,
-        isAwl: true,
-      };
 
       setTests((prev) =>
         prev.map((t) => {
           if (t.id !== activeTest.id) return t;
           const idx = t.vocabulary.findIndex(
-            (v) => v.word.toLowerCase() === newItem.word.toLowerCase()
+            (v) => v.word.toLowerCase() === newItem!.word.toLowerCase()
           );
           const nextVocab =
             idx >= 0
-              ? t.vocabulary.map((v, i) => (i === idx ? newItem : v))
-              : [newItem, ...t.vocabulary];
+              ? t.vocabulary.map((v, i) => (i === idx ? newItem! : v))
+              : [newItem!, ...t.vocabulary];
           return { ...t, vocabulary: nextVocab };
         })
       );
@@ -960,32 +992,63 @@ export default function App() {
   const handleExtractClassroomDrills = useCallback(
     async (count: number): Promise<ClassroomDrillSentence[]> => {
       const effectiveDuration = Math.max(activeTest.durationSec || 0, duration || 0);
-      const res = await fetch('/api/ielts/extract-classroom-drills', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
+      const isLocalhost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.port === '3000');
+      const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
+
+      let drills: ClassroomDrillSentence[] | undefined;
+      let updatedSegments: ListeningTestPack['segments'] | undefined;
+
+      if (isLocalhost) {
+        try {
+          const res = await fetch('/api/ielts/extract-classroom-drills', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({
+              testPack: {
+                ...activeTest,
+                durationSec: effectiveDuration,
+              },
+              count,
+            }),
+          });
+          if (res.ok) {
+            const data = await safeParseJsonResponse<{
+              classroomDrills?: ClassroomDrillSentence[];
+              updatedSegments?: ListeningTestPack['segments'];
+              error?: string;
+            }>(res, 'Máy chủ trả về phản hồi không hợp lệ khi trích xuất câu.');
+            if (Array.isArray(data.classroomDrills) && data.classroomDrills.length > 0) {
+              drills = data.classroomDrills;
+              updatedSegments =
+                Array.isArray(data.updatedSegments) && data.updatedSegments.length > 0
+                  ? data.updatedSegments
+                  : undefined;
+            }
+          }
+        } catch {
+          // Fallback to client-side
+        }
+      }
+
+      if (!drills || drills.length === 0) {
+        const clientRes = await extractClassroomDrillsClientSide({
+          apiKey,
           testPack: {
             ...activeTest,
             durationSec: effectiveDuration,
           },
-          count,
-        }),
-      });
-      const data = await safeParseJsonResponse<{
-        classroomDrills?: ClassroomDrillSentence[];
-        updatedSegments?: ListeningTestPack['segments'];
-        error?: string;
-      }>(res, 'Máy chủ trả về phản hồi không hợp lệ khi trích xuất câu.');
-      if (!Array.isArray(data.classroomDrills)) {
-        throw new Error(data.error || 'Không thể trích xuất 10–15 câu hay nhất từ bài.');
+          targetCount: count,
+        });
+        drills = clientRes.classroomDrills;
+        if (clientRes.updatedSegments) {
+          updatedSegments = clientRes.updatedSegments;
+        }
       }
-
-      const drills = data.classroomDrills;
-      const updatedSegments =
-        Array.isArray(data.updatedSegments) && data.updatedSegments.length > 0
-          ? data.updatedSegments
-          : undefined;
 
       setTests((prev) =>
         prev.map((t) =>
@@ -998,27 +1061,52 @@ export default function App() {
             : t
         )
       );
-      return drills;
+      return drills!;
     },
     [activeTest, duration]
   );
 
   const handleRegenerateQuestions = useCallback(async () => {
-    const res = await fetch('/api/ielts/generate-questions', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ testPack: activeTest }),
-    });
-    const data = await safeParseJsonResponse<{
-      questions?: ListeningTestPack['questions'];
-      error?: string;
-    }>(res, 'Không thể tạo bộ câu hỏi từ bài nghe.');
-    if (!Array.isArray(data.questions) || data.questions.length === 0) {
-      throw new Error(data.error || 'Chưa trích xuất được câu hỏi từ tệp hiện tại.');
+    const isLocalhost =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.port === '3000');
+    const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
+
+    let questions: ListeningTestPack['questions'] | undefined;
+
+    if (isLocalhost) {
+      try {
+        const res = await fetch('/api/ielts/generate-questions', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ testPack: activeTest }),
+        });
+        if (res.ok) {
+          const data = await safeParseJsonResponse<{
+            questions?: ListeningTestPack['questions'];
+            error?: string;
+          }>(res, 'Không thể tạo bộ câu hỏi từ bài nghe.');
+          if (Array.isArray(data.questions) && data.questions.length > 0) {
+            questions = data.questions;
+          }
+        }
+      } catch {
+        // Fallback to client-side
+      }
     }
+
+    if (!questions || questions.length === 0) {
+      questions = await generateQuestionsClientSide({
+        apiKey,
+        testPack: activeTest,
+      });
+    }
+
     setTests((prev) =>
-      prev.map((t) => (t.id === activeTest.id ? { ...t, questions: data.questions! } : t))
+      prev.map((t) => (t.id === activeTest.id ? { ...t, questions: questions! } : t))
     );
   }, [activeTest]);
 
