@@ -1488,6 +1488,8 @@ export default function App() {
         testPack={activeTest}
         allTests={tests}
         onSelectTest={(id) => setActiveTestId(id)}
+        activeView={activeView}
+        onChangeView={setActiveView}
         onDeleteTest={handleDeleteCustomTest}
         onOpenLocalFiles={() => setIsLocalFilesOpen(true)}
         audioRef={audioRef}

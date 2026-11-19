@@ -16,11 +16,14 @@ import {
   Volume2,
 } from 'lucide-react';
 import type { ListeningTestPack } from '../types/ielts';
+import type { WorkspaceView } from './TopBar';
 
 interface AudioSyncBarProps {
   testPack: ListeningTestPack;
   allTests: ListeningTestPack[];
   onSelectTest: (testId: string) => void;
+  activeView?: WorkspaceView;
+  onChangeView?: (view: WorkspaceView) => void;
   onDeleteTest?: (testId: string) => void;
   onOpenLocalFiles?: () => void;
   audioRef: React.RefObject<HTMLAudioElement | null>;
@@ -51,10 +54,19 @@ export function formatMmSsXx(seconds: number): string {
 // In-memory cache of decoded audio peaks to avoid freezing main thread on re-renders
 const peaksCache = new Map<string, number[]>();
 
+const MODE_NAV_ITEMS: { id: WorkspaceView; label: string }[] = [
+  { id: 'exam', label: 'Phòng thi IDP' },
+  { id: 'analysis', label: 'Phân tích AI' },
+  { id: 'practice', label: 'Luyện chuyên sâu' },
+  { id: 'vocabulary', label: 'Từ vựng AWL' },
+];
+
 export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
   testPack,
   allTests,
   onSelectTest,
+  activeView,
+  onChangeView,
   onDeleteTest,
   onOpenLocalFiles,
   currentTime,
@@ -221,26 +233,58 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
       className="sticky top-16 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-xs"
     >
       <div className="max-w-[1400px] mx-auto px-6 py-2.5 flex flex-col gap-2">
-        {/* Top row: Test selector + metadata + Local Computer Downloads */}
+        {/* Top row: Test selector + Chế độ học tập (Phòng thi, Phân tích AI...) + Actions */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3 min-w-0">
-            <label htmlFor="test-pack-select" className="sr-only">
-              Chọn bộ đề luyện tập
-            </label>
-            <select
-              id="test-pack-select"
-              value={testPack.id}
-              onChange={(e) => onSelectTest(e.target.value)}
-              className="text-xs font-bold text-[#0F2744] bg-slate-50/90 border border-slate-300 rounded-lg px-3 py-1.5 max-w-[340px] truncate cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 shadow-2xs"
-            >
-              {allTests.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.partLabel}: {t.title}
-                </option>
-              ))}
-            </select>
+          <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+            {/* Chọn bộ đề luyện tập */}
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="test-pack-select" className="text-xs font-bold text-[#0F2744] whitespace-nowrap">
+                Bài nghe:
+              </label>
+              <select
+                id="test-pack-select"
+                value={testPack.id}
+                onChange={(e) => onSelectTest(e.target.value)}
+                className="text-xs font-bold text-[#0F2744] bg-slate-50/90 border border-slate-300 rounded-lg px-2.5 py-1.5 max-w-[200px] sm:max-w-[260px] lg:max-w-[320px] truncate cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 shadow-2xs"
+              >
+                {allTests.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.partLabel}: {t.title}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            <div className="hidden sm:flex items-center gap-2 text-xs font-semibold text-slate-600">
+            {/* Divider */}
+            <div className="hidden sm:block h-5 w-px bg-slate-300" aria-hidden="true" />
+
+            {/* Chức năng chọn chế độ (Phòng thi IDP, Phân tích AI, Luyện chuyên sâu, Từ vựng AWL) - Chữ màu xanh đậm */}
+            {activeView && onChangeView && (
+              <nav
+                aria-label="Chọn chế độ học"
+                className="inline-flex items-center gap-1 p-0.5 sm:p-1 bg-slate-100/90 rounded-lg border border-slate-200 overflow-x-auto no-scrollbar"
+              >
+                {MODE_NAV_ITEMS.map((item) => {
+                  const isActive = activeView === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => onChangeView(item.id)}
+                      className={`px-2.5 sm:px-3 py-1.5 text-xs rounded-md transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                        isActive
+                          ? 'bg-[#0F2744] text-white font-extrabold shadow-xs'
+                          : 'text-[#0F2744] font-bold hover:bg-white/80'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </nav>
+            )}
+
+            <div className="hidden 2xl:flex items-center gap-2 text-xs font-semibold text-slate-600">
               <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">{testPack.topic}</span>
               <span aria-hidden="true" className="text-slate-300">·</span>
               <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 font-bold">{testPack.bandTarget}</span>

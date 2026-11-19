@@ -4,8 +4,8 @@ import { Cloud, FolderInput, HardDrive, Key, Maximize, Minimize } from 'lucide-r
 export type WorkspaceView = 'exam' | 'analysis' | 'practice' | 'vocabulary';
 
 interface TopBarProps {
-  activeView: WorkspaceView;
-  onChangeView: (view: WorkspaceView) => void;
+  activeView?: WorkspaceView;
+  onChangeView?: (view: WorkspaceView) => void;
   onOpenIngest: () => void;
   onOpenApiKey?: () => void;
   onOpenGoogleDrive?: () => void;
@@ -19,15 +19,7 @@ interface TopBarProps {
   onToggleFullscreen?: () => void;
 }
 
-const NAV_ITEMS: { id: WorkspaceView; label: string }[] = [
-  { id: 'exam', label: 'Phòng thi IDP' },
-  { id: 'analysis', label: 'Phân tích AI' },
-  { id: 'practice', label: 'Luyện chuyên sâu' },
-  { id: 'vocabulary', label: 'Từ vựng AWL' },
-];
-
 export const TopBar: React.FC<TopBarProps> = ({
-  activeView,
   onChangeView,
   onOpenIngest,
   onOpenApiKey,
@@ -43,11 +35,11 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-xs">
-      <div className="max-w-[1400px] mx-auto px-6 h-16 flex items-center justify-between gap-8">
-        {/* Zone 1: Single-line brand wordmark with International Standard badge */}
+      <div className="max-w-[1400px] mx-auto px-6 h-16 flex items-center justify-between gap-6">
+        {/* Brand wordmark with International Academic Standard badge */}
         <button
           type="button"
-          onClick={() => onChangeView('exam')}
+          onClick={() => onChangeView?.('exam')}
           className="flex items-center gap-2 text-lg font-extrabold tracking-tight text-[#0F2744] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 rounded select-none group"
         >
           <span className="group-hover:text-blue-900 transition-colors">LexiSync IELTS</span>
@@ -56,37 +48,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           </span>
         </button>
 
-        {/* Zone 2: 4 single-line text navigation links */}
-        <nav
-          aria-label="Điều hướng chính"
-          className="flex items-center gap-7 overflow-x-auto no-scrollbar"
-        >
-          {NAV_ITEMS.map((item) => {
-            const isActive = activeView === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onChangeView(item.id)}
-                className={`relative py-2 text-sm whitespace-nowrap shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 rounded ${
-                  isActive
-                    ? 'text-[#0F2744] font-extrabold'
-                    : 'text-slate-600 hover:text-[#0F2744] font-semibold'
-                }`}
-              >
-                {item.label}
-                {isActive && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute inset-x-0 -bottom-[17px] h-0.5 bg-[#0F2744]"
-                  />
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Zone 3: Actions & Accessibility Controls */}
+        {/* Actions & Accessibility Controls */}
         <div className="flex items-center gap-2.5 shrink-0">
           {/* Font Size Scaling Controls */}
           {onIncreaseFont && onDecreaseFont && (
