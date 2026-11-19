@@ -1,20 +1,49 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Bookmark,
   ChevronLeft,
   ChevronRight,
-  Maximize,
-  Minimize,
-  Play,
-  Repeat,
-  Sparkles,
-  Volume2,
-  X,
-  FileDown,
   Eye,
   EyeOff,
+  FileDown,
+  Layers,
+  Maximize,
+  Mic,
+  Minimize,
+  PenLine,
+  Play,
+  Repeat,
+  RotateCcw,
+  Volume2,
+  X,
 } from 'lucide-react';
 import type { ClassroomDrillSentence, ListeningTestPack } from '../types/ielts';
 import { exportDictationSlidesPptx } from '../utils/pptxExport';
+
+export type SlidePedagogicalMode =
+  | 'blind'        // 1. Ẩn chữ (Nghe mù)
+  | 'gap_fill'     // 2. Đục lỗ (Điền từ)
+  | 'word_by_word' // 3. Hiện từng từ
+  | 'full_reveal'  // 4. Hiện đáp án
+  | 'choral';      // 5. Đọc đồng thanh
+
+interface WordToken {
+  id: string;
+  index: number;
+  raw: string;
+  wordOnly: string;
+  trailingPunct: string;
+  isKeyword: boolean;
+}
+
+interface FocusVocabItem {
+  word: string;
+  ipa?: string;
+  pos?: string;
+  meaningVi?: string;
+  collocations?: string[];
+  example?: string;
+}
 
 interface ClassroomSlideModalProps {
   isOpen: boolean;
@@ -23,6 +52,90 @@ interface ClassroomSlideModalProps {
   drills?: ClassroomDrillSentence[];
   onPlaySegment: (startSec: number, endSec?: number) => void;
   isPlaying?: boolean;
+  playbackRate?: number;
+  onChangeRate?: (rate: number) => void;
+}
+
+const COMMON_STOP_WORDS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'in', 'on', 'at', 'to', 'for', 'with', 'from', 'by', 'of', 'and', 'or',
+  'but', 'so', 'it', 'its', 'i', 'my', 'me', 'we', 'our', 'us', 'you', 'your',
+  'he', 'his', 'him', 'she', 'her', 'they', 'their', 'them', 'this', 'that',
+  'these', 'those', 'as', 'if', 'when', 'than', 'into', 'can', 'could', 'will',
+  'would', 'shall', 'should', 'may', 'might', 'must', 'just', 'not', 'have',
+  'has', 'had', 'do', 'does', 'did', 'so', 'too', 'very'
+]);
+
+function tokenizeSentence(
+  sentence: string,
+  keyWords: string[] = [],
+  vocabList: { word: string }[] = []
+): WordToken[] {
+  const rawTokens = sentence.trim().split(/\s+/).filter(Boolean);
+
+  const targetWordsSet = new Set<string>();
+  keyWords.forEach((kw) => {
+    kw.toLowerCase()
+      .split(/\s+/)
+      .forEach((w) => {
+        const cleaned = w.replace(/[^a-zA-Z0-9]/g, '');
+        if (cleaned.length > 2) targetWordsSet.add(cleaned);
+      });
+  });
+
+  vocabList.forEach((v) => {
+    v.word.toLowerCase()
+      .split(/\s+/)
+      .forEach((w) => {
+        const cleaned = w.replace(/[^a-zA-Z0-9]/g, '');
+        if (cleaned.length > 2) targetWordsSet.add(cleaned);
+      });
+  });
+
+  const tokens: WordToken[] = rawTokens.map((raw, index) => {
+    const cleanWord = raw.replace(/^[“"'(]+/, '').replace(/[”"')!?,.:;]+$/, '');
+    const trailingPunct = raw.slice(cleanWord.length);
+    const lower = cleanWord.toLowerCase();
+
+    let isKeyword = false;
+    if (targetWordsSet.has(lower)) {
+      isKeyword = true;
+    } else if (cleanWord.length >= 5 && !COMMON_STOP_WORDS.has(lower)) {
+      isKeyword = true;
+    }
+
+    return {
+      id: `${index}-${cleanWord}`,
+      index,
+      raw,
+      wordOnly: cleanWord || raw,
+      trailingPunct,
+      isKeyword,
+    };
+  });
+
+  // Ensure at least 1-2 keywords if sentence has content words
+  const kwCount = tokens.filter((t) => t.isKeyword).length;
+  if (kwCount === 0 && tokens.length > 0) {
+    const candidate = [...tokens]
+      .filter((t) => !COMMON_STOP_WORDS.has(t.wordOnly.toLowerCase()) && t.wordOnly.length >= 4)
+      .sort((a, b) => b.wordOnly.length - a.wordOnly.length)[0];
+    if (candidate) {
+      candidate.isKeyword = true;
+    }
+  }
+
+  return tokens;
+}
+
+function speakWord(text: string) {
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.9;
+    window.speechSynthesis.speak(utterance);
+  }
 }
 
 export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
@@ -32,36 +145,137 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
   drills: propDrills,
   onPlaySegment,
   isPlaying = false,
+  playbackRate = 1.0,
+  onChangeRate,
 }) => {
-  const drills: ClassroomDrillSentence[] =
-    propDrills && propDrills.length > 0
-      ? propDrills
-      : testPack.classroomDrills && testPack.classroomDrills.length > 0
-        ? testPack.classroomDrills
-        : testPack.segments.slice(0, 12).map((seg, i) => ({
-          id: seg.id,
-          order: i + 1,
-          speaker: seg.speaker,
-          sentence: seg.text,
-          translationVi: '',
-          startSec: seg.startSec,
-          endSec: seg.endSec,
-          timestampLabel: seg.timestampLabel,
-          selectionReasonVi: 'Trích đoạn câu tiêu biểu từ audio',
-          stressPattern: seg.stressPattern || '',
-          connectedSpeechNote: seg.intonationNote || '',
-          keyWords: [],
-        }));
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const drills: ClassroomDrillSentence[] = useMemo(() => {
+    if (propDrills && propDrills.length > 0) return propDrills;
+    if (testPack.classroomDrills && testPack.classroomDrills.length > 0) {
+      return testPack.classroomDrills;
+    }
+    return testPack.segments.slice(0, 12).map((seg, i) => ({
+      id: seg.id,
+      order: i + 1,
+      speaker: seg.speaker,
+      sentence: seg.text,
+      translationVi: '',
+      startSec: seg.startSec,
+      endSec: seg.endSec,
+      timestampLabel: seg.timestampLabel,
+      selectionReasonVi: 'Trích đoạn câu tiêu biểu từ audio',
+      stressPattern: seg.stressPattern || '',
+      connectedSpeechNote: seg.intonationNote || '',
+      keyWords: [],
+    }));
+  }, [propDrills, testPack]);
 
   const [currentSlideIdx, setCurrentSlideIdx] = useState(0);
+  const [activeMode, setActiveMode] = useState<SlidePedagogicalMode>('blind');
+  const [revealedIndices, setRevealedIndices] = useState<Set<number>>(new Set());
+  const [wordByWordStep, setWordByWordStep] = useState(0);
   const [isLooping, setIsLooping] = useState(false);
-  const [revealSentence, setRevealSentence] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showVocabSheet, setShowVocabSheet] = useState(false);
 
-  // Keyboard navigation: Left/Right arrows, Space
+  const currentDrill = drills[currentSlideIdx] || drills[0];
+
+  // Tokenize current sentence
+  const tokens = useMemo(() => {
+    if (!currentDrill?.sentence) return [];
+    return tokenizeSentence(
+      currentDrill.sentence,
+      currentDrill.keyWords || [],
+      testPack.vocabulary || []
+    );
+  }, [currentDrill, testPack.vocabulary]);
+
+  // Find focus vocabulary for the current sentence
+  const focusVocabList: FocusVocabItem[] = useMemo(() => {
+    if (!currentDrill) return [];
+    const list: FocusVocabItem[] = [];
+    const seenWords = new Set<string>();
+
+    // 1. Match from testPack.vocabulary
+    if (testPack.vocabulary) {
+      for (const v of testPack.vocabulary) {
+        const regex = new RegExp(`\\b${v.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        if (regex.test(currentDrill.sentence) && !seenWords.has(v.word.toLowerCase())) {
+          seenWords.add(v.word.toLowerCase());
+          list.push({
+            word: v.word,
+            ipa: v.ipa,
+            pos: v.pos,
+            meaningVi: v.meaningVi,
+            collocations: v.collocations,
+            example: v.contextSentence,
+          });
+        }
+      }
+    }
+
+    // 2. Match from drill.keyWords
+    if (currentDrill.keyWords && currentDrill.keyWords.length > 0) {
+      for (const kw of currentDrill.keyWords) {
+        if (!seenWords.has(kw.toLowerCase())) {
+          seenWords.add(kw.toLowerCase());
+          list.push({
+            word: kw,
+            pos: 'key phrase',
+            meaningVi: 'Cụm từ then chốt xuất hiện trong bài thi',
+          });
+        }
+      }
+    }
+
+    // 3. Fallback to longest keyword token if empty
+    if (list.length === 0 && tokens.length > 0) {
+      const topKw = [...tokens]
+        .filter((t) => t.isKeyword)
+        .sort((a, b) => b.wordOnly.length - a.wordOnly.length)[0];
+      if (topKw) {
+        list.push({
+          word: topKw.wordOnly,
+          pos: 'focus word',
+          meaningVi: 'Từ vựng quan trọng giúp nắm bắt ý chính đoạn nghe',
+        });
+      }
+    }
+
+    return list;
+  }, [currentDrill, testPack.vocabulary, tokens]);
+
+  // Reset revealed state when slide changes or mode changes
+  useEffect(() => {
+    setShowVocabSheet(false);
+    if (activeMode === 'blind') {
+      setRevealedIndices(new Set());
+    } else if (activeMode === 'gap_fill') {
+      // In gap_fill: non-keywords are already revealed, keywords are unrevealed
+      const initialRevealed = new Set<number>();
+      tokens.forEach((t) => {
+        if (!t.isKeyword) initialRevealed.add(t.index);
+      });
+      setRevealedIndices(initialRevealed);
+    } else if (activeMode === 'word_by_word') {
+      setWordByWordStep(0);
+      setRevealedIndices(new Set());
+    } else if (activeMode === 'full_reveal' || activeMode === 'choral') {
+      setRevealedIndices(new Set(tokens.map((t) => t.index)));
+    }
+  }, [currentSlideIdx, activeMode, tokens]);
+
+  // Keyboard navigation & Shortcuts
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if user is typing in an input
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+        return;
+      }
+
       if (e.key === 'ArrowRight' || e.key === 'PageDown') {
         e.preventDefault();
         setCurrentSlideIdx((prev) => (prev < drills.length - 1 ? prev + 1 : 0));
@@ -69,179 +283,761 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
         e.preventDefault();
         setCurrentSlideIdx((prev) => (prev > 0 ? prev - 1 : drills.length - 1));
       } else if (e.key === 'Escape') {
-        onClose();
+        if (showVocabSheet) {
+          setShowVocabSheet(false);
+        } else {
+          onClose();
+        }
+      } else if (e.key === '1') {
+        setActiveMode('blind');
+      } else if (e.key === '2') {
+        setActiveMode('gap_fill');
+      } else if (e.key === '3') {
+        setActiveMode('word_by_word');
+      } else if (e.key === '4') {
+        setActiveMode('full_reveal');
+      } else if (e.key === '5') {
+        setActiveMode('choral');
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        if (activeMode === 'word_by_word') {
+          setWordByWordStep((prev) => Math.min(tokens.length, prev + 1));
+        } else if (currentDrill) {
+          onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, drills.length, onClose]);
+  }, [isOpen, drills.length, onClose, showVocabSheet, activeMode, tokens.length, currentDrill, onPlaySegment]);
 
-  if (!isOpen || drills.length === 0) return null;
+  // Fullscreen tracking
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
 
-  const currentDrill = drills[currentSlideIdx];
+  if (!isOpen || drills.length === 0 || !currentDrill) return null;
 
   const handlePlayCurrent = () => {
     onPlaySegment(currentDrill.startSec, currentDrill.endSec);
   };
 
-  const maskSentenceForDictation = (text: string) => {
-    return text.replace(/[a-zA-Z]{4,}/g, (match) => match[0] + '_'.repeat(match.length - 1));
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await containerRef.current?.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Fallback if browser blocks fullscreen
+    }
   };
+
+  const toggleTokenReveal = (index: number) => {
+    setRevealedIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  const revealAllTokens = () => {
+    setRevealedIndices(new Set(tokens.map((t) => t.index)));
+  };
+
+  const hideAllTokens = () => {
+    setRevealedIndices(new Set());
+  };
+
+  const stepNextWord = () => {
+    setWordByWordStep((prev) => Math.min(tokens.length, prev + 1));
+  };
+
+  const stepPrevWord = () => {
+    setWordByWordStep((prev) => Math.max(0, prev - 1));
+  };
+
+  // Choral chunks (split sentence by commas, periods, or natural phrases)
+  const choralChunks = currentDrill.sentence
+    .split(/([,.;:!?]|\band\b|\bbut\b|\bbecause\b|\bwhich\b)/gi)
+    .reduce<string[]>((acc, part) => {
+      const trimmed = part.trim();
+      if (!trimmed) return acc;
+      if (trimmed.length <= 2 && acc.length > 0) {
+        acc[acc.length - 1] += ` ${trimmed}`;
+      } else {
+        acc.push(trimmed);
+      }
+      return acc;
+    }, [])
+    .filter((chunk) => chunk.trim().length > 0);
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="classroom-slide-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-slate-950/90 backdrop-blur-md animate-fadeIn select-none"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/95 backdrop-blur-md animate-fadeIn select-none"
     >
-      <div className="relative w-full max-w-6xl aspect-[16/9] max-h-[92vh] bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col text-white">
-        {/* Slide Top Navigation Strip */}
-        <div className="px-6 py-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="px-3 py-1 bg-blue-600 font-bold text-xs rounded-full uppercase tracking-wider">
+      <div
+        ref={containerRef}
+        className={`relative w-full ${
+          isFullscreen
+            ? 'h-full max-w-none rounded-none'
+            : 'max-w-6xl aspect-[16/9] max-h-[94vh] rounded-3xl'
+        } bg-[#0A0D1A] border border-slate-800/90 overflow-hidden shadow-2xl flex flex-col text-white transition-all`}
+      >
+        {/* Top Control Bar: Title + Fullscreen + Close */}
+        <header className="px-5 py-3 sm:py-3.5 bg-[#0D1224]/90 border-b border-slate-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <span className="px-3 py-1 bg-purple-600 font-extrabold text-xs rounded-full uppercase tracking-wider text-white shadow-xs">
               Slide {currentSlideIdx + 1}/{drills.length}
             </span>
-            <span id="classroom-slide-title" className="text-sm font-semibold text-slate-300 hidden sm:inline">
-              {testPack.title} ({testPack.partLabel})
+            <span id="classroom-slide-title" className="text-xs sm:text-sm font-semibold text-slate-300 truncate max-w-[260px] sm:max-w-md">
+              {testPack.title} • {currentDrill.speaker}
+            </span>
+            <span className="hidden md:inline-flex items-center font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-800 text-purple-300 border border-slate-700">
+              {currentDrill.timestampLabel}
             </span>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Audio Play Button */}
             <button
               type="button"
-              onClick={() => setRevealSentence((prev) => !prev)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
-                revealSentence
-                  ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
-                  : 'bg-amber-600 text-white border-amber-500'
-              }`}
-              title="Ẩn/Hiện câu để học sinh luyện chép chính tả tại lớp"
+              onClick={handlePlayCurrent}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+              title="Phát đoạn Audio câu này (Space)"
             >
-              {revealSentence ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              <span>{revealSentence ? 'Hiện đầy đủ câu' : 'Đang ẩn câu (Dictation Mode)'}</span>
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span className="hidden sm:inline">Phát câu</span>
             </button>
 
+            {/* Repeat Audio Toggle */}
+            <button
+              type="button"
+              onClick={() => setIsLooping(!isLooping)}
+              className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+                isLooping
+                  ? 'bg-amber-600 border-amber-400 text-white'
+                  : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+              }`}
+              title="Lặp lại câu"
+            >
+              <Repeat className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Export PPTX button */}
             <button
               type="button"
               onClick={() => exportDictationSlidesPptx(testPack)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors cursor-pointer"
-              title="Tải bài giảng slide về máy tính"
+              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors cursor-pointer"
+              title="Tải slide PowerPoint (.pptx)"
             >
-              <FileDown className="w-3.5 h-3.5" />
-              <span>Tải Slide bài giảng (.html/.pptx)</span>
+              <FileDown className="w-3.5 h-3.5 text-emerald-400" />
+              <span>PPTX</span>
             </button>
 
+            {/* Fullscreen Toggle */}
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              title={isFullscreen ? 'Thoát toàn màn hình' : 'Toàn màn hình 16:9'}
+            >
+              {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+            </button>
+
+            {/* Close Modal */}
             <button
               type="button"
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-              aria-label="Đóng chế độ trình chiếu"
+              aria-label="Đóng slide"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
+        </header>
+
+        {/* 5 Pedagogical Modes Bar - Exactly matching user screenshot */}
+        <div className="pt-3 pb-2 px-4 flex justify-center shrink-0">
+          <nav
+            aria-label="Chế độ trình chiếu"
+            className="inline-flex items-center gap-1 p-1 bg-[#12162A]/90 border border-slate-800 rounded-full shadow-xl overflow-x-auto max-w-full no-scrollbar"
+          >
+            {/* Mode 1: Ẩn chữ (Nghe mù) */}
+            <button
+              type="button"
+              onClick={() => setActiveMode('blind')}
+              className={`inline-flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer ${
+                activeMode === 'blind'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md border border-purple-400/50'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <EyeOff className="w-4 h-4" />
+              <span>1. Ẩn chữ (Nghe mù)</span>
+            </button>
+
+            {/* Mode 2: Đục lỗ (Điền từ) */}
+            <button
+              type="button"
+              onClick={() => setActiveMode('gap_fill')}
+              className={`inline-flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer ${
+                activeMode === 'gap_fill'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md border border-purple-400/50'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <PenLine className="w-4 h-4" />
+              <span>2. Đục lỗ (Điền từ)</span>
+            </button>
+
+            {/* Mode 3: Hiện từng từ */}
+            <button
+              type="button"
+              onClick={() => setActiveMode('word_by_word')}
+              className={`inline-flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer ${
+                activeMode === 'word_by_word'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md border border-purple-400/50'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span>3. Hiện từng từ</span>
+            </button>
+
+            {/* Mode 4: Hiện đáp án */}
+            <button
+              type="button"
+              onClick={() => setActiveMode('full_reveal')}
+              className={`inline-flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer ${
+                activeMode === 'full_reveal'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md border border-purple-400/50'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Eye className="w-4 h-4" />
+              <span>4. Hiện đáp án</span>
+            </button>
+
+            {/* Mode 5: Đọc đồng thanh */}
+            <button
+              type="button"
+              onClick={() => setActiveMode('choral')}
+              className={`inline-flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer ${
+                activeMode === 'choral'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md border border-purple-400/50'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Mic className="w-4 h-4" />
+              <span>5. Đọc đồng thanh</span>
+            </button>
+          </nav>
         </div>
 
-        {/* 16:9 Slide Presentation Canvas */}
-        <div className="flex-1 p-8 md:p-12 flex flex-col justify-between overflow-y-auto">
-          {/* Header of the Slide */}
-          <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
-            <div className="flex items-center gap-3">
-              <span className="text-xl md:text-2xl font-extrabold text-blue-400 font-mono">
-                CÂU {String(currentDrill.order).padStart(2, '0')}
-              </span>
-              <span className="text-slate-400 text-sm md:text-base font-semibold">
-                Người nói: <strong className="text-slate-200">{currentDrill.speaker}</strong>
-              </span>
-            </div>
+        {/* Main 16:9 Slide Presentation Canvas */}
+        <div className="flex-1 px-6 sm:px-12 py-4 flex flex-col justify-between overflow-y-auto min-h-0">
+          <div className="my-auto flex flex-col items-center justify-center w-full">
+            {/* MODE 1: Ẩn chữ (Nghe mù) */}
+            {activeMode === 'blind' && (
+              <div className="w-full flex flex-col items-center">
+                <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3.5 max-w-4xl mx-auto py-4">
+                  {tokens.map((token) => {
+                    const isRevealed = revealedIndices.has(token.index);
+                    return (
+                      <button
+                        key={token.id}
+                        type="button"
+                        onClick={() => toggleTokenReveal(token.index)}
+                        className={`relative min-w-[52px] sm:min-w-[68px] md:min-w-[76px] h-12 sm:h-15 px-3.5 sm:px-5 rounded-2xl flex items-center justify-center transition-all cursor-pointer shadow-md select-none group ${
+                          isRevealed
+                            ? 'bg-purple-900/40 border-2 border-purple-400 text-white font-extrabold text-lg sm:text-2xl shadow-purple-500/20'
+                            : 'bg-[#12162B] border-2 border-dashed border-slate-700/80 hover:border-purple-400 hover:bg-purple-950/30 text-slate-500 font-bold text-lg sm:text-2xl'
+                        }`}
+                        title={isRevealed ? 'Nhấp để ẩn lại' : 'Nhấp để lật mở từ này'}
+                      >
+                        <span className={isRevealed ? 'scale-100' : 'group-hover:scale-110 transition-transform text-slate-400'}>
+                          {isRevealed ? token.wordOnly : '?'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
 
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-sm md:text-base text-blue-400 font-bold bg-blue-950/60 border border-blue-800/60 px-3 py-1 rounded-lg">
-                {currentDrill.timestampLabel} ({currentDrill.startSec.toFixed(1)}s – {currentDrill.endSec.toFixed(1)}s)
-              </span>
+                {/* Subtitle Hint */}
+                <p className="text-center text-xs sm:text-sm text-slate-400 font-medium flex items-center justify-center gap-2 mt-4 select-none">
+                  <span>🎧</span>
+                  <span>Học sinh tập trung lắng nghe và ghi chép vào vở • Bấm vào ô bất kỳ để lật mở từng từ</span>
+                </p>
 
+                {/* Quick actions for teacher */}
+                <div className="flex items-center gap-3 mt-3">
+                  <button
+                    type="button"
+                    onClick={revealAllTokens}
+                    className="px-3 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  >
+                    Lật mở tất cả ô
+                  </button>
+                  <button
+                    type="button"
+                    onClick={hideAllTokens}
+                    className="px-3 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  >
+                    Ẩn lại toàn bộ
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* MODE 2: Đục lỗ (Điền từ) */}
+            {activeMode === 'gap_fill' && (
+              <div className="w-full flex flex-col items-center">
+                <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3.5 max-w-4xl mx-auto py-4 leading-relaxed">
+                  {tokens.map((token) => {
+                    if (!token.isKeyword) {
+                      return (
+                        <span
+                          key={token.id}
+                          className="text-lg sm:text-2xl font-bold text-slate-200 px-1 py-1 tracking-wide"
+                        >
+                          {token.raw}
+                        </span>
+                      );
+                    }
+                    const isRevealed = revealedIndices.has(token.index);
+                    return (
+                      <div key={token.id} className="inline-flex items-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleTokenReveal(token.index)}
+                          className={`min-w-[64px] sm:min-w-[84px] h-12 sm:h-14 px-3 sm:px-4 rounded-xl border-2 flex items-center justify-center transition-all cursor-pointer shadow-md select-none ${
+                            isRevealed
+                              ? 'border-emerald-400 bg-emerald-950/50 text-emerald-300 font-extrabold text-lg sm:text-xl shadow-emerald-500/20'
+                              : 'border-dashed border-amber-500/80 bg-amber-950/30 text-amber-400 hover:border-amber-400 hover:bg-amber-900/40 font-bold text-lg sm:text-xl'
+                          }`}
+                          title={isRevealed ? 'Đáp án đã hiện (nhấp để ẩn)' : 'Ô đục lỗ: Nhấp để hiện đáp án từ này'}
+                        >
+                          {isRevealed ? token.wordOnly : '?'}
+                        </button>
+                        {token.trailingPunct && (
+                          <span className="text-lg sm:text-2xl font-bold text-slate-300 ml-1">
+                            {token.trailingPunct}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <p className="text-center text-xs sm:text-sm text-slate-400 font-medium flex items-center justify-center gap-2 mt-4 select-none">
+                  <span>📝</span>
+                  <span>Học sinh nghe và điền các từ còn thiếu vào ô trống • Bấm vào ô bất kỳ để lật mở đáp án</span>
+                </p>
+
+                <div className="flex items-center gap-3 mt-3">
+                  <button
+                    type="button"
+                    onClick={revealAllTokens}
+                    className="px-3 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  >
+                    Hiện tất cả đáp án điền từ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const initialRevealed = new Set<number>();
+                      tokens.forEach((t) => {
+                        if (!t.isKeyword) initialRevealed.add(t.index);
+                      });
+                      setRevealedIndices(initialRevealed);
+                    }}
+                    className="px-3 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  >
+                    Đục lỗ lại
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* MODE 3: Hiện từng từ */}
+            {activeMode === 'word_by_word' && (
+              <div className="w-full flex flex-col items-center">
+                <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 max-w-4xl mx-auto py-4">
+                  {tokens.map((token) => {
+                    const isRevealed = token.index < wordByWordStep;
+                    const isCurrent = token.index === wordByWordStep - 1;
+                    return (
+                      <div key={token.id} className="inline-flex items-center">
+                        <div
+                          className={`min-w-[50px] sm:min-w-[68px] h-12 sm:h-14 px-3 sm:px-4 rounded-xl flex items-center justify-center transition-all select-none ${
+                            isRevealed
+                              ? isCurrent
+                                ? 'bg-purple-600 text-white font-extrabold text-lg sm:text-xl ring-4 ring-purple-400/50 shadow-xl scale-105'
+                                : 'bg-indigo-950/60 border border-indigo-400/40 text-slate-100 font-bold text-base sm:text-lg shadow-md'
+                              : 'bg-[#12162B] border-2 border-dashed border-slate-700/60 text-slate-600 font-bold text-base'
+                          }`}
+                        >
+                          {isRevealed ? token.wordOnly : '?'}
+                        </div>
+                        {isRevealed && token.trailingPunct && (
+                          <span className="text-lg font-bold text-slate-300 ml-0.5">
+                            {token.trailingPunct}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Stepper controls */}
+                <div className="flex flex-wrap items-center justify-center gap-2.5 mt-4">
+                  <button
+                    type="button"
+                    onClick={stepPrevWord}
+                    disabled={wordByWordStep <= 0}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-semibold cursor-pointer"
+                  >
+                    ◀ Lùi 1 từ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stepNextWord}
+                    disabled={wordByWordStep >= tokens.length}
+                    className="px-4 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-purple-600/30 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <span>Hiện từ tiếp theo ▶</span>
+                    <kbd className="px-1.5 py-0.5 bg-purple-800 rounded text-[10px] font-mono">Space</kbd>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWordByWordStep(tokens.length)}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  >
+                    Hiện tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWordByWordStep(0)}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <p className="text-center text-xs sm:text-sm text-slate-400 font-medium flex items-center justify-center gap-2 mt-4 select-none">
+                  <span>👉</span>
+                  <span>Bấm "Hiện từ tiếp theo" (hoặc nhấn phím Space) để lật mở từng từ theo nhịp đọc của giáo viên</span>
+                </p>
+              </div>
+            )}
+
+            {/* MODE 4: Hiện đáp án */}
+            {activeMode === 'full_reveal' && (
+              <div className="w-full max-w-4xl mx-auto py-2">
+                <div className="bg-[#101426]/90 border-l-8 border-purple-500 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-md">
+                  <p className="text-xl sm:text-2xl md:text-3xl font-extrabold leading-snug tracking-tight text-white mb-4">
+                    “
+                    {tokens.map((token) => (
+                      <span
+                        key={token.id}
+                        className={
+                          token.isKeyword
+                            ? 'inline-block bg-purple-900/60 text-purple-200 border border-purple-400/50 px-2 py-0.5 mx-1 rounded-lg font-bold shadow-xs'
+                            : 'inline'
+                        }
+                      >
+                        {token.raw}{' '}
+                      </span>
+                    ))}
+                    ”
+                  </p>
+
+                  {currentDrill.translationVi && (
+                    <div className="pt-4 border-t border-slate-800/80 flex items-start gap-2 text-sm sm:text-base text-slate-300 font-medium leading-relaxed">
+                      <span className="text-purple-400 font-bold shrink-0">Bản dịch:</span>
+                      <p className="italic">{currentDrill.translationVi}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2-column Linguistic insights */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mt-5">
+                  <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 sm:p-4">
+                    <span className="text-xs font-bold text-purple-400 uppercase tracking-wider block mb-1">
+                      Trọng âm chính (Word Stress)
+                    </span>
+                    <p className="text-xs sm:text-sm font-mono font-bold text-slate-200">
+                      {currentDrill.stressPattern || 'Nhấn mạnh các từ khóa mang thông tin chính'}
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 sm:p-4">
+                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block mb-1">
+                      Hiện tượng nối âm & Ngữ điệu (Connected Speech)
+                    </span>
+                    <p className="text-xs sm:text-sm text-slate-200">
+                      {currentDrill.connectedSpeechNote || 'Lên giọng nhẹ ở mệnh đề phụ, hạ giọng ở cuối câu trần thuật.'}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-center text-xs sm:text-sm text-slate-400 font-medium flex items-center justify-center gap-2 mt-4 select-none">
+                  <span>✅</span>
+                  <span>Đáp án trọn vẹn của câu • Đã làm nổi bật từ vựng học thuật & bản dịch tiếng Việt</span>
+                </p>
+              </div>
+            )}
+
+            {/* MODE 5: Đọc đồng thanh */}
+            {activeMode === 'choral' && (
+              <div className="w-full max-w-4xl mx-auto py-2 text-center">
+                <div className="bg-[#101426]/90 border-2 border-indigo-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl">
+                  <div className="text-xl sm:text-2xl md:text-3xl font-extrabold leading-relaxed tracking-tight text-white mb-6">
+                    {choralChunks.map((chunk, cIdx) => (
+                      <span key={cIdx} className="inline-block mx-1.5 my-1">
+                        <span className="text-purple-300 font-black px-2.5 py-1 bg-purple-950/60 rounded-xl border border-purple-500/30">
+                          {chunk}
+                        </span>
+                        {cIdx < choralChunks.length - 1 && (
+                          <span className="text-slate-600 font-light mx-2">/</span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Audio shadow controller */}
+                  <div className="flex flex-wrap items-center justify-center gap-3 pt-5 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={handlePlayCurrent}
+                      className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-sm flex items-center gap-2 shadow-lg shadow-purple-600/30 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <Play className="w-4 h-4 fill-current" />
+                      <span>Phát âm thanh câu này</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsLooping(!isLooping)}
+                      className={`px-4 py-2.5 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                        isLooping
+                          ? 'bg-amber-600 border-amber-400 text-white shadow-md'
+                          : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      <Repeat className="w-4 h-4" />
+                      <span>Lặp lại tự động {isLooping ? '(Bật)' : ''}</span>
+                    </button>
+
+                    {/* Speed selector */}
+                    {onChangeRate && (
+                      <div className="inline-flex items-center bg-slate-800 p-0.5 rounded-lg border border-slate-700">
+                        {[0.75, 0.85, 1.0].map((rate) => (
+                          <button
+                            key={rate}
+                            type="button"
+                            onClick={() => onChangeRate(rate)}
+                            className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                              playbackRate === rate
+                                ? 'bg-purple-600 text-white shadow-xs'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {rate}x
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <p className="text-center text-xs sm:text-sm text-slate-400 font-medium flex items-center justify-center gap-2 mt-4 select-none">
+                  <span>🗣️</span>
+                  <span>Cả lớp cùng nhìn câu, nghe nhịp điệu audio và đọc to đồng thanh 2–3 lần</span>
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Row: Xem từ vựng trọng tâm câu này - Exactly matching user screenshot */}
+          {focusVocabList.length > 0 && (
+            <div className="flex justify-center mt-auto pt-3 shrink-0">
               <button
                 type="button"
-                onClick={handlePlayCurrent}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded-xl transition-all shadow-lg hover:scale-105 active:scale-95 cursor-pointer"
+                onClick={() => setShowVocabSheet((prev) => !prev)}
+                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#14122E] hover:bg-[#1E1A48] border border-purple-500/50 text-purple-200 text-xs sm:text-sm font-semibold transition-all shadow-xl hover:shadow-purple-500/25 active:scale-95 cursor-pointer"
               >
-                <Play className="w-4 h-4 fill-current" />
-                <span>Phát Audio câu này</span>
+                <Bookmark className="w-4 h-4 text-purple-400 fill-purple-400/20" />
+                <span>
+                  Xem {focusVocabList.length} từ vựng trọng tâm câu này ({focusVocabList.map((v) => v.word).join(', ')})
+                </span>
               </button>
             </div>
-          </div>
-
-          {/* Core Sentence Presentation Area */}
-          <div className="my-auto py-6">
-            <div className="bg-slate-800/50 border-l-8 border-blue-500 rounded-2xl p-6 md:p-8 backdrop-blur-xs">
-              <p className="text-2xl md:text-4xl font-extrabold leading-snug tracking-tight text-white mb-3">
-                “{revealSentence ? currentDrill.sentence : maskSentenceForDictation(currentDrill.sentence)}”
-              </p>
-              {currentDrill.translationVi && (
-                <p className="text-base md:text-lg text-slate-400 font-medium leading-relaxed">
-                  {currentDrill.translationVi}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Linguistic Stress & Connected Speech Insights */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-800/80">
-            <div className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4">
-              <span className="text-xs font-bold text-blue-400 uppercase tracking-wider block mb-1">
-                Trọng âm chính (Word Stress)
-              </span>
-              <p className="text-sm md:text-base font-mono font-bold text-slate-200">
-                {currentDrill.stressPattern || 'Nhấn mạnh các từ khóa mang thông tin chính'}
-              </p>
-            </div>
-
-            <div className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4">
-              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block mb-1">
-                Hiện tượng nối âm & Ngữ điệu (Connected Speech)
-              </span>
-              <p className="text-sm md:text-base text-slate-200">
-                {currentDrill.connectedSpeechNote || 'Lên giọng nhẹ ở mệnh đề phụ, hạ giọng ở cuối câu trần thuật.'}
-              </p>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Slide Bottom Bar Navigation */}
-        <div className="px-6 py-4 bg-slate-900 border-t border-slate-800 flex items-center justify-between shrink-0">
-          <div className="text-xs text-slate-400 flex items-center gap-2">
-            <span>Dùng phím mũi tên</span>
-            <kbd className="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300 font-mono">←</kbd>
-            <kbd className="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300 font-mono">→</kbd>
-            <span>để chuyển câu</span>
+        {/* Slide Bottom Bar Navigation: Prev / Next / Shortcuts */}
+        <footer className="px-5 py-3 bg-[#0D1224] border-t border-slate-800 flex items-center justify-between shrink-0">
+          <div className="text-xs text-slate-400 flex items-center gap-2 hidden sm:flex">
+            <span>Phím tắt:</span>
+            <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300 font-mono text-[10px]">←</kbd>
+            <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300 font-mono text-[10px]">→</kbd>
+            <span>đổi slide</span>
+            <span className="text-slate-600">·</span>
+            <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300 font-mono text-[10px]">1-5</kbd>
+            <span>đổi chế độ</span>
+            <span className="text-slate-600">·</span>
+            <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300 font-mono text-[10px]">Space</kbd>
+            <span>phát câu</span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-auto">
             <button
               type="button"
               onClick={() => setCurrentSlideIdx((prev) => (prev > 0 ? prev - 1 : drills.length - 1))}
-              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
               aria-label="Câu trước"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-4 h-4" />
+              <span>Câu trước</span>
             </button>
 
-            <span className="text-sm font-mono font-bold px-3 py-1 bg-slate-800 rounded-lg text-slate-300 tabular-nums">
+            <span className="text-xs font-mono font-bold px-3 py-1 bg-slate-800/80 rounded-lg text-slate-300 tabular-nums">
               {currentSlideIdx + 1} / {drills.length}
             </span>
 
             <button
               type="button"
               onClick={() => setCurrentSlideIdx((prev) => (prev < drills.length - 1 ? prev + 1 : 0))}
-              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
               aria-label="Câu tiếp theo"
             >
-              <ChevronRight className="w-5 h-5" />
+              <span>Câu sau</span>
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
-        </div>
+        </footer>
+
+        {/* Vocabulary Detail Popover Sheet */}
+        {showVocabSheet && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="vocab-sheet-title"
+            className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-fadeIn"
+          >
+            <div className="relative w-full max-w-lg bg-[#0F1426] border border-purple-500/40 rounded-3xl p-6 sm:p-7 shadow-2xl text-white">
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3.5 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Bookmark className="w-5 h-5 text-purple-400 fill-purple-400/20" />
+                  <h3 id="vocab-sheet-title" className="text-base font-extrabold text-white">
+                    Từ vựng trọng tâm trong câu
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowVocabSheet(false)}
+                  className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg cursor-pointer"
+                  aria-label="Đóng bảng từ vựng"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Vocab Items List */}
+              <div className="mt-4 space-y-3.5 max-h-[55vh] overflow-y-auto pr-1">
+                {focusVocabList.map((vocab, vIdx) => (
+                  <div
+                    key={vIdx}
+                    className="bg-[#14192E] border border-slate-800/90 rounded-2xl p-4 shadow-md"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <span className="text-xl sm:text-2xl font-black text-purple-300 tracking-tight">
+                          {vocab.word}
+                        </span>
+                        {vocab.ipa && (
+                          <span className="font-mono text-xs sm:text-sm text-slate-400 font-medium">
+                            {vocab.ipa}
+                          </span>
+                        )}
+                        {vocab.pos && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-purple-950/90 border border-purple-800 text-purple-300">
+                            {vocab.pos}
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => speakWord(vocab.word)}
+                        className="p-2 rounded-xl bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-700/60 transition-colors cursor-pointer"
+                        title="Nghe phát âm từ này"
+                      >
+                        <Volume2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {vocab.meaningVi && (
+                      <div className="mt-2.5 text-xs sm:text-sm text-slate-200 font-medium leading-relaxed bg-slate-900/70 p-2.5 rounded-xl border border-slate-800">
+                        <span className="text-purple-400 font-bold">Nghĩa tiếng Việt: </span>
+                        {vocab.meaningVi}
+                      </div>
+                    )}
+
+                    {vocab.collocations && vocab.collocations.length > 0 && (
+                      <div className="mt-2.5 text-xs text-slate-300">
+                        <span className="text-slate-400 font-bold block mb-1">Cụm kết hợp hay (Collocations):</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {vocab.collocations.map((c, cIdx) => (
+                            <span
+                              key={cIdx}
+                              className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[11px]"
+                            >
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {vocab.example && (
+                      <div className="mt-2.5 text-[11px] italic text-slate-400">
+                        "{vocab.example}"
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Close Button */}
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowVocabSheet(false)}
+                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Đã hiểu
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

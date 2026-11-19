@@ -1697,6 +1697,9 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
         testPack={testPack}
         drills={classroomDrills}
         onPlaySegment={onPlaySegment}
+        isPlaying={isPlaying}
+        playbackRate={playbackRate}
+        onChangeRate={onChangeRate}
       />
     </div>
   );
