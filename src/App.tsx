@@ -1574,6 +1574,7 @@ export default function App() {
             focusTimestampSec={focusTimestampSec}
             currentTime={currentTime}
             onPlaySegment={(start, end) => seekAndPlay(start, end ?? null)}
+            onTogglePlay={handleTogglePlay}
             isPlaying={isPlaying}
             playbackRate={playbackRate}
             onChangeRate={setPlaybackRate}

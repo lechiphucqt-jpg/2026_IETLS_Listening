@@ -12,6 +12,7 @@ import {
   Minimize,
   PenLine,
   Play,
+  Pause,
   Repeat,
   RotateCcw,
   Volume2,
@@ -51,6 +52,8 @@ interface ClassroomSlideModalProps {
   testPack: ListeningTestPack;
   drills?: ClassroomDrillSentence[];
   onPlaySegment: (startSec: number, endSec?: number) => void;
+  onTogglePlay?: () => void;
+  currentTime?: number;
   isPlaying?: boolean;
   playbackRate?: number;
   onChangeRate?: (rate: number) => void;
@@ -144,6 +147,8 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
   testPack,
   drills: propDrills,
   onPlaySegment,
+  onTogglePlay,
+  currentTime,
   isPlaying = false,
   playbackRate = 1.0,
   onChangeRate,
@@ -176,8 +181,12 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
   const [revealedIndices, setRevealedIndices] = useState<Set<number>>(new Set());
   const [wordByWordStep, setWordByWordStep] = useState(0);
   const [isLooping, setIsLooping] = useState(false);
+  const [loopCount, setLoopCount] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showVocabSheet, setShowVocabSheet] = useState(false);
+
+  const wasPlayingRef = useRef(false);
+  const loopTimerRef = useRef<number | null>(null);
 
   const currentDrill = drills[currentSlideIdx] || drills[0];
 
@@ -302,6 +311,12 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
         e.preventDefault();
         if (activeMode === 'word_by_word') {
           setWordByWordStep((prev) => Math.min(tokens.length, prev + 1));
+        } else if (isPlaying) {
+          if (onTogglePlay) {
+            onTogglePlay();
+          } else if (currentDrill) {
+            onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+          }
         } else if (currentDrill) {
           onPlaySegment(currentDrill.startSec, currentDrill.endSec);
         }
@@ -310,7 +325,7 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, drills.length, onClose, showVocabSheet, activeMode, tokens.length, currentDrill, onPlaySegment]);
+  }, [isOpen, drills.length, onClose, showVocabSheet, activeMode, tokens.length, currentDrill, onPlaySegment, onTogglePlay, isPlaying]);
 
   // Fullscreen tracking
   useEffect(() => {
@@ -321,10 +336,91 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFsChange);
   }, []);
 
+  // Auto-loop playback for current drill sentence
+  useEffect(() => {
+    if (!isOpen || !isLooping || !currentDrill) {
+      wasPlayingRef.current = isPlaying;
+      if (loopTimerRef.current) {
+        window.clearTimeout(loopTimerRef.current);
+        loopTimerRef.current = null;
+      }
+      return;
+    }
+
+    // Detect segment end transition (isPlaying: true -> false)
+    if (wasPlayingRef.current && !isPlaying) {
+      if (loopTimerRef.current) {
+        window.clearTimeout(loopTimerRef.current);
+      }
+      loopTimerRef.current = window.setTimeout(() => {
+        if (isOpen && isLooping && currentDrill) {
+          setLoopCount((prev) => prev + 1);
+          onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+        }
+      }, 500);
+    }
+
+    wasPlayingRef.current = isPlaying;
+
+    return () => {
+      if (loopTimerRef.current) {
+        window.clearTimeout(loopTimerRef.current);
+      }
+    };
+  }, [isPlaying, isLooping, isOpen, currentDrill, onPlaySegment]);
+
+  // When changing slides while looping, auto-play the new sentence
+  useEffect(() => {
+    if (loopTimerRef.current) {
+      window.clearTimeout(loopTimerRef.current);
+      loopTimerRef.current = null;
+    }
+    setLoopCount(0);
+    if (isOpen && isLooping && currentDrill) {
+      onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+    }
+  }, [currentSlideIdx]);
+
+  // Reset loop on modal close
+  useEffect(() => {
+    if (!isOpen) {
+      setIsLooping(false);
+      setLoopCount(0);
+      if (loopTimerRef.current) {
+        window.clearTimeout(loopTimerRef.current);
+        loopTimerRef.current = null;
+      }
+    }
+  }, [isOpen]);
+
   if (!isOpen || drills.length === 0 || !currentDrill) return null;
 
   const handlePlayCurrent = () => {
-    onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+    if (isPlaying) {
+      if (onTogglePlay) {
+        onTogglePlay();
+      } else if (currentDrill) {
+        onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+      }
+    } else if (currentDrill) {
+      onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+    }
+  };
+
+  const handleToggleLoop = () => {
+    const next = !isLooping;
+    setIsLooping(next);
+    setLoopCount(0);
+    if (next) {
+      if (!isPlaying && currentDrill) {
+        onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+      }
+    } else {
+      if (loopTimerRef.current) {
+        window.clearTimeout(loopTimerRef.current);
+        loopTimerRef.current = null;
+      }
+    }
   };
 
   const toggleFullscreen = async () => {
@@ -416,25 +512,43 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
             <button
               type="button"
               onClick={handlePlayCurrent}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
-              title="Phát đoạn Audio câu này (Space)"
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer ${
+                isPlaying
+                  ? 'bg-purple-700 hover:bg-purple-600 text-white ring-2 ring-purple-400/50'
+                  : 'bg-purple-600 hover:bg-purple-500 text-white'
+              }`}
+              title={isPlaying ? 'Tạm dừng hoặc phát lại câu (Space)' : 'Phát đoạn Audio câu này (Space)'}
             >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span className="hidden sm:inline">Phát câu</span>
+              {isPlaying ? (
+                <Pause className="w-3.5 h-3.5 fill-current" />
+              ) : (
+                <Play className="w-3.5 h-3.5 fill-current" />
+              )}
+              <span className="hidden sm:inline">{isPlaying ? 'Đang phát' : 'Phát câu'}</span>
             </button>
 
             {/* Repeat Audio Toggle */}
             <button
               type="button"
-              onClick={() => setIsLooping(!isLooping)}
-              className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+              onClick={handleToggleLoop}
+              className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                 isLooping
-                  ? 'bg-amber-600 border-amber-400 text-white'
+                  ? 'bg-amber-600 border-amber-400 text-white shadow-md shadow-amber-600/30 ring-2 ring-amber-400/50'
                   : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
               }`}
-              title="Lặp lại câu"
+              title={
+                isLooping
+                  ? `Đang lặp lại câu${loopCount > 0 ? ` (Đã lặp ${loopCount} lần)` : ''} - Nhấp để tắt`
+                  : 'Bật chế độ lặp lại câu này liên tục'
+              }
+              aria-pressed={isLooping}
             >
               <Repeat className="w-3.5 h-3.5" />
+              {isLooping && (
+                <span className="hidden sm:inline text-[11px] font-bold">
+                  {loopCount > 0 ? `Lần ${loopCount + 1}` : 'Lặp'}
+                </span>
+              )}
             </button>
 
             {/* Export PPTX button */}
@@ -824,23 +938,33 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
                     <button
                       type="button"
                       onClick={handlePlayCurrent}
-                      className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-sm flex items-center gap-2 shadow-lg shadow-purple-600/30 active:scale-95 transition-all cursor-pointer"
+                      className={`px-5 py-2.5 rounded-xl font-extrabold text-sm flex items-center gap-2 shadow-lg active:scale-95 transition-all cursor-pointer ${
+                        isPlaying
+                          ? 'bg-purple-700 hover:bg-purple-600 text-white ring-2 ring-purple-400/50 shadow-purple-700/30'
+                          : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-600/30'
+                      }`}
                     >
-                      <Play className="w-4 h-4 fill-current" />
-                      <span>Phát âm thanh câu này</span>
+                      {isPlaying ? (
+                        <Pause className="w-4 h-4 fill-current" />
+                      ) : (
+                        <Play className="w-4 h-4 fill-current" />
+                      )}
+                      <span>{isPlaying ? 'Tạm dừng / Đang phát' : 'Phát âm thanh câu này'}</span>
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => setIsLooping(!isLooping)}
+                      onClick={handleToggleLoop}
                       className={`px-4 py-2.5 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
                         isLooping
-                          ? 'bg-amber-600 border-amber-400 text-white shadow-md'
+                          ? 'bg-amber-600 border-amber-400 text-white shadow-md ring-2 ring-amber-400/50'
                           : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
                       }`}
                     >
                       <Repeat className="w-4 h-4" />
-                      <span>Lặp lại tự động {isLooping ? '(Bật)' : ''}</span>
+                      <span>
+                        Lặp lại tự động {isLooping ? (loopCount > 0 ? `(Lần ${loopCount + 1})` : '(Bật)') : ''}
+                      </span>
                     </button>
 
                     {/* Speed selector */}

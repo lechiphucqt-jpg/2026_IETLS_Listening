@@ -35,6 +35,7 @@ interface AdvancedPracticeStudioProps {
   focusTimestampSec: number | null;
   currentTime?: number;
   onPlaySegment: (startSec: number, endSec?: number) => void;
+  onTogglePlay?: () => void;
   isPlaying: boolean;
   playbackRate: number;
   onChangeRate: (rate: number) => void;
@@ -132,6 +133,7 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
   focusTimestampSec,
   currentTime,
   onPlaySegment,
+  onTogglePlay,
   isPlaying,
   playbackRate,
   onChangeRate,
@@ -226,7 +228,7 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
   // Auto-loop playback for active classroom sentence
   const wasPlayingRef = useRef(false);
   useEffect(() => {
-    if (activeTab !== 'classroom' || !loopSentence || !currentClassroom) {
+    if (activeTab !== 'classroom' || !loopSentence || !currentClassroom || isSlideModalOpen) {
       wasPlayingRef.current = isPlaying;
       return;
     }
@@ -1697,6 +1699,8 @@ export const AdvancedPracticeStudio: React.FC<AdvancedPracticeStudioProps> = ({
         testPack={testPack}
         drills={classroomDrills}
         onPlaySegment={onPlaySegment}
+        onTogglePlay={onTogglePlay}
+        currentTime={currentTime}
         isPlaying={isPlaying}
         playbackRate={playbackRate}
         onChangeRate={onChangeRate}
