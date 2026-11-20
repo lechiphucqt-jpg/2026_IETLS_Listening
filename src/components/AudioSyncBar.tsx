@@ -189,9 +189,9 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
       const ratio = idx / peaks.length;
 
       if (ratio <= progress) {
-        ctx.fillStyle = '#1D4ED8';
+        ctx.fillStyle = '#15803D';
       } else {
-        ctx.fillStyle = '#CBD5E1';
+        ctx.fillStyle = '#E2E8F0';
       }
       ctx.beginPath();
       ctx.roundRect(x, y, barWidth, barH, 1.5);
@@ -238,14 +238,14 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
           <div className="flex flex-wrap items-center gap-2.5 min-w-0">
             {/* Chọn bộ đề luyện tập */}
             <div className="flex items-center gap-1.5">
-              <label htmlFor="test-pack-select" className="text-xs font-bold text-[#0F2744] whitespace-nowrap">
+              <label htmlFor="test-pack-select" className="text-xs font-bold text-[#15803D] whitespace-nowrap">
                 Bài nghe:
               </label>
               <select
                 id="test-pack-select"
                 value={testPack.id}
                 onChange={(e) => onSelectTest(e.target.value)}
-                className="text-xs font-bold text-[#0F2744] bg-slate-50/90 border border-slate-300 rounded-lg px-2.5 py-1.5 max-w-[200px] sm:max-w-[260px] lg:max-w-[320px] truncate cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 shadow-2xs"
+                className="text-xs font-bold text-[#15803D] bg-emerald-50/50 border border-emerald-300 rounded-lg px-2.5 py-1.5 max-w-[200px] sm:max-w-[260px] lg:max-w-[320px] truncate cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 shadow-2xs"
               >
                 {allTests.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -258,11 +258,11 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
             {/* Divider */}
             <div className="hidden sm:block h-5 w-px bg-slate-300" aria-hidden="true" />
 
-            {/* Chức năng chọn chế độ (Phòng thi IDP, Phân tích AI, Luyện chuyên sâu, Từ vựng AWL) - Chữ màu xanh đậm */}
+            {/* Chức năng chọn chế độ (Phòng thi IDP, Phân tích AI, Luyện chuyên sâu, Từ vựng AWL) - Chữ màu xanh */}
             {activeView && onChangeView && (
               <nav
                 aria-label="Chọn chế độ học"
-                className="inline-flex items-center gap-1 p-0.5 sm:p-1 bg-slate-100/90 rounded-lg border border-slate-200 overflow-x-auto no-scrollbar"
+                className="inline-flex items-center gap-1 p-0.5 sm:p-1 bg-emerald-50/80 rounded-lg border border-emerald-200 overflow-x-auto no-scrollbar"
               >
                 {MODE_NAV_ITEMS.map((item) => {
                   const isActive = activeView === item.id;
@@ -273,8 +273,8 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
                       onClick={() => onChangeView(item.id)}
                       className={`px-2.5 sm:px-3 py-1.5 text-xs rounded-md transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                         isActive
-                          ? 'bg-[#0F2744] text-white font-extrabold shadow-xs'
-                          : 'text-[#0F2744] font-bold hover:bg-white/80'
+                          ? 'bg-[#15803D] text-white font-extrabold shadow-xs'
+                          : 'text-[#15803D] font-bold hover:bg-emerald-100/70'
                       }`}
                     >
                       {item.label}
@@ -285,11 +285,11 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
             )}
 
             <div className="hidden 2xl:flex items-center gap-2 text-xs font-semibold text-slate-600">
-              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">{testPack.topic}</span>
+              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">{testPack.topic}</span>
               <span aria-hidden="true" className="text-slate-300">·</span>
-              <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 font-bold">{testPack.bandTarget}</span>
+              <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold">{testPack.bandTarget}</span>
               <span aria-hidden="true" className="text-slate-300">·</span>
-              <span className="tabular-nums text-slate-800 font-bold">{testPack.questions.length} câu hỏi</span>
+              <span className="tabular-nums text-emerald-950 font-bold">{testPack.questions.length} câu hỏi</span>
             </div>
           </div>
 
@@ -471,7 +471,7 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               type="button"
               onClick={onTogglePlay}
               aria-label={isPlaying ? 'Tạm dừng' : 'Phát âm thanh'}
-              className="p-2.5 bg-[#0F2744] hover:bg-[#0A1B30] text-white rounded-lg transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 focus-visible:ring-offset-2"
+              className="p-2.5 bg-[#15803D] hover:bg-[#166534] text-white rounded-lg transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2"
             >
               {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 fill-current" />}
             </button>
@@ -481,14 +481,14 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               onClick={() => onSeek(Math.min(effectiveDuration, currentTime + 5))}
               aria-label="Tiến 5 giây"
               title="Tiến 5 giây"
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
+              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"
             >
               <RotateCw className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5 text-xs font-mono shrink-0 tabular-nums bg-slate-100/90 px-3 py-1.5 rounded-lg border border-slate-200">
-            <span className="font-extrabold text-[#0F2744] text-sm">[{formatMmSsXx(currentTime)}]</span>
+          <div className="flex items-center gap-1.5 text-xs font-mono shrink-0 tabular-nums bg-emerald-50/70 px-3 py-1.5 rounded-lg border border-emerald-200">
+            <span className="font-extrabold text-[#15803D] text-sm">[{formatMmSsXx(currentTime)}]</span>
             <span className="text-slate-400 font-bold">/</span>
             <span className="font-semibold text-slate-600">[{formatMmSsXx(effectiveDuration)}]</span>
           </div>
@@ -498,11 +498,11 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               ref={canvasRef}
               onClick={handleCanvasClick}
               title="Nhấp vào sóng âm để tua chính xác đến từng mili giây (vạch vàng là vị trí đáp án)"
-              className="w-full h-10 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 shadow-2xs"
+              className="w-full h-10 cursor-pointer rounded-lg bg-emerald-50/30 border border-emerald-200 shadow-2xs"
             />
             {activeSegment && (
               <div className="text-[11px] text-slate-600 truncate font-medium">
-                <span className="font-bold text-[#0F2744]">{activeSegment.speaker}:</span>{' '}
+                <span className="font-bold text-[#15803D]">{activeSegment.speaker}:</span>{' '}
                 {activeSegment.text}
               </div>
             )}
@@ -512,7 +512,7 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
           <div
             role="group"
             aria-label="Tốc độ phát âm thanh"
-            className="flex items-center gap-1 p-0.5 bg-slate-100 border border-slate-200 rounded-lg shrink-0"
+            className="flex items-center gap-1 p-0.5 bg-emerald-50/80 border border-emerald-200 rounded-lg shrink-0"
           >
             {speedOptions.map((opt) => {
               const active = Math.abs(playbackRate - opt.rate) < 0.05;
@@ -521,10 +521,10 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
                   key={opt.rate}
                   type="button"
                   onClick={() => onChangeRate(opt.rate)}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 ${
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 ${
                     active
-                      ? 'bg-[#0F2744] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-[#0F2744] hover:bg-white/70'
+                      ? 'bg-[#15803D] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-[#15803D] hover:bg-white/70'
                   }`}
                 >
                   {opt.label}
