@@ -131,16 +131,16 @@ export const TopBar: React.FC<TopBarProps> = ({
             </span>
           </button>
 
-          {/* Nút Quản lý Tệp Máy Tính (Audio & PDF cục bộ) */}
+          {/* Nút Quản lý Tệp & Lưu trữ Máy Tính (Local-First) */}
           {onOpenLocalFiles && (
             <button
               type="button"
               onClick={onOpenLocalFiles}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-200 bg-white text-emerald-900 hover:bg-emerald-50 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
-              title="Quản lý và tải các tệp Audio & PDF đã lưu trên máy tính"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
+              title="Lưu trữ và quản lý toàn bộ dữ liệu trực tiếp trên máy tính (Local-First)"
             >
               <HardDrive className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-              <span>Tệp máy tính</span>
+              <span>Lưu trữ máy tính</span>
             </button>
           )}
 

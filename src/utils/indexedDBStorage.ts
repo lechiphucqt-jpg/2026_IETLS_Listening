@@ -6,11 +6,14 @@
  * IndexedDB persist across sessions, browser restarts, and device reboots.
  */
 
-import type { ListeningTestPack } from '../types/ielts';
+import type { FlashcardItem, ListeningTestPack } from '../types/ielts';
 
 const DB_NAME = 'lexisync_media_db_v1';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'media_records';
+const SETTINGS_STORE = 'app_settings';
+const TESTS_STORE = 'tests_library';
+const FLASHCARDS_STORE = 'flashcards_store';
 
 export interface StoredMediaRecord {
   key: string; // `${testId}_${type}`
@@ -29,7 +32,7 @@ const liveBlobUrlCache = new Map<string, string>();
 /**
  * Open or initialize the IndexedDB database
  */
-function openMediaDatabase(): Promise<IDBDatabase> {
+export function openMediaDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof window === 'undefined' || !window.indexedDB) {
       reject(new Error('IndexedDB is not supported in this environment.'));
@@ -45,6 +48,15 @@ function openMediaDatabase(): Promise<IDBDatabase> {
         store.createIndex('testId', 'testId', { unique: false });
         store.createIndex('type', 'type', { unique: false });
       }
+      if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
+        db.createObjectStore(SETTINGS_STORE, { keyPath: 'key' });
+      }
+      if (!db.objectStoreNames.contains(TESTS_STORE)) {
+        db.createObjectStore(TESTS_STORE, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(FLASHCARDS_STORE)) {
+        db.createObjectStore(FLASHCARDS_STORE, { keyPath: 'id' });
+      }
     };
 
     request.onsuccess = () => {
@@ -55,6 +67,170 @@ function openMediaDatabase(): Promise<IDBDatabase> {
       reject(request.error || new Error('Failed to open LexiSync IndexedDB.'));
     };
   });
+}
+
+/**
+ * Save custom test packs to IndexedDB tests_library
+ */
+export async function saveCustomTestsToIndexedDB(tests: ListeningTestPack[]): Promise<void> {
+  try {
+    const db = await openMediaDatabase();
+    if (!db.objectStoreNames.contains(TESTS_STORE)) return;
+    const tx = db.transaction(TESTS_STORE, 'readwrite');
+    const store = tx.objectStore(TESTS_STORE);
+    store.clear();
+    for (const test of tests) {
+      // Store test without ephemeral blob URLs
+      store.put({
+        ...test,
+        audioUrl: test.audioUrl && test.audioUrl.startsWith('blob:') ? undefined : test.audioUrl,
+        pdfUrl: test.pdfUrl && test.pdfUrl.startsWith('blob:') ? undefined : test.pdfUrl,
+      });
+    }
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] Failed to save custom tests to IndexedDB:', err);
+  }
+}
+
+/**
+ * Retrieve all custom tests from IndexedDB
+ */
+export async function getAllCustomTestsFromIndexedDB(): Promise<ListeningTestPack[]> {
+  try {
+    const db = await openMediaDatabase();
+    if (!db.objectStoreNames.contains(TESTS_STORE)) return [];
+    return await new Promise<ListeningTestPack[]>((resolve, reject) => {
+      const tx = db.transaction(TESTS_STORE, 'readonly');
+      const store = tx.objectStore(TESTS_STORE);
+      const req = store.getAll();
+      req.onsuccess = () => resolve((req.result as ListeningTestPack[]) || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Save flashcards to IndexedDB
+ */
+export async function saveFlashcardsToIndexedDB(cards: FlashcardItem[]): Promise<void> {
+  try {
+    const db = await openMediaDatabase();
+    if (!db.objectStoreNames.contains(FLASHCARDS_STORE)) return;
+    const tx = db.transaction(FLASHCARDS_STORE, 'readwrite');
+    const store = tx.objectStore(FLASHCARDS_STORE);
+    store.clear();
+    for (const card of cards) {
+      store.put(card);
+    }
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] Failed to save flashcards to IndexedDB:', err);
+  }
+}
+
+/**
+ * Retrieve all flashcards from IndexedDB
+ */
+export async function getAllFlashcardsFromIndexedDB(): Promise<FlashcardItem[]> {
+  try {
+    const db = await openMediaDatabase();
+    if (!db.objectStoreNames.contains(FLASHCARDS_STORE)) return [];
+    return await new Promise<FlashcardItem[]>((resolve, reject) => {
+      const tx = db.transaction(FLASHCARDS_STORE, 'readonly');
+      const store = tx.objectStore(FLASHCARDS_STORE);
+      const req = store.getAll();
+      req.onsuccess = () => resolve((req.result as FlashcardItem[]) || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Save FileSystemDirectoryHandle to IndexedDB
+ */
+export async function saveDirectoryHandleToDB(
+  handle: FileSystemDirectoryHandle,
+  folderName?: string
+): Promise<void> {
+  try {
+    const db = await openMediaDatabase();
+    if (!db.objectStoreNames.contains(SETTINGS_STORE)) return;
+    const tx = db.transaction(SETTINGS_STORE, 'readwrite');
+    const store = tx.objectStore(SETTINGS_STORE);
+    store.put({
+      key: 'saved_directory_handle',
+      handle,
+      name: folderName || handle.name,
+      savedAt: Date.now(),
+    });
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] Failed to save directory handle:', err);
+  }
+}
+
+/**
+ * Retrieve saved FileSystemDirectoryHandle from IndexedDB
+ */
+export async function getDirectoryHandleFromDB(): Promise<{
+  handle: FileSystemDirectoryHandle;
+  name: string;
+} | null> {
+  try {
+    const db = await openMediaDatabase();
+    if (!db.objectStoreNames.contains(SETTINGS_STORE)) return null;
+    return await new Promise((resolve) => {
+      const tx = db.transaction(SETTINGS_STORE, 'readonly');
+      const store = tx.objectStore(SETTINGS_STORE);
+      const req = store.get('saved_directory_handle');
+      req.onsuccess = () => {
+        if (req.result && req.result.handle) {
+          resolve({
+            handle: req.result.handle as FileSystemDirectoryHandle,
+            name: (req.result.name as string) || req.result.handle.name,
+          });
+        } else {
+          resolve(null);
+        }
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clear saved FileSystemDirectoryHandle from IndexedDB
+ */
+export async function clearDirectoryHandleFromDB(): Promise<void> {
+  try {
+    const db = await openMediaDatabase();
+    if (!db.objectStoreNames.contains(SETTINGS_STORE)) return;
+    const tx = db.transaction(SETTINGS_STORE, 'readwrite');
+    const store = tx.objectStore(SETTINGS_STORE);
+    store.delete('saved_directory_handle');
+    await new Promise<void>((resolve) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {
+    // ignore
+  }
 }
 
 /**

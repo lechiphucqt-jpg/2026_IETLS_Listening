@@ -33,10 +33,14 @@ import {
 import {
   deleteMediaForTest,
   exportTestPackage,
+  getAllCustomTestsFromIndexedDB,
+  getAllFlashcardsFromIndexedDB,
   getMediaBlob,
   getOrCreateLiveMediaUrl,
   importTestPackage,
   isAudioUrlPlayable,
+  saveCustomTestsToIndexedDB,
+  saveFlashcardsToIndexedDB,
   saveMediaBlob,
 } from './utils/indexedDBStorage';
 
@@ -304,6 +308,51 @@ export default function App() {
     };
   }, []);
 
+  // Rehydrate custom tests and flashcards from local IndexedDB (Local-First on computer disk)
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const idbTests = await getAllCustomTestsFromIndexedDB();
+        if (!cancelled && idbTests.length > 0) {
+          setTests((prev) => {
+            const existingMap = new Map(prev.map((t) => [t.id, t]));
+            let changed = false;
+            const merged = [...prev];
+            for (const t of idbTests) {
+              if (!existingMap.has(t.id)) {
+                merged.unshift(t);
+                changed = true;
+              }
+            }
+            return changed ? merged : prev;
+          });
+        }
+      } catch {
+        // ignore
+      }
+
+      try {
+        const idbCards = await getAllFlashcardsFromIndexedDB();
+        if (!cancelled && idbCards.length > 0) {
+          setFlashcards((prev) => {
+            if (prev.length === 0) return idbCards;
+            const cardIds = new Set(prev.map((c) => c.id));
+            const newCards = idbCards.filter((c) => !cardIds.has(c.id));
+            return newCards.length > 0 ? [...prev, ...newCards] : prev;
+          });
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Rehydrate persistent Audio & PDF blobs from IndexedDB across page reloads/sessions
   useEffect(() => {
     let cancelled = false;
@@ -395,6 +444,7 @@ export default function App() {
     try {
       const customOnly = tests.filter((t) => !SAMPLE_ID_SET.has(t.id));
       localStorage.setItem(CUSTOM_TESTS_STORAGE_KEY, JSON.stringify(customOnly));
+      void saveCustomTestsToIndexedDB(customOnly);
 
       const sampleOverrides: Record<string, Partial<ListeningTestPack>> = {};
       tests.forEach((t) => {
@@ -441,6 +491,7 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem(FLASHCARD_STORAGE_KEY, JSON.stringify(flashcards));
+      void saveFlashcardsToIndexedDB(flashcards);
     } catch {
       // ignore
     }
@@ -1653,6 +1704,34 @@ export default function App() {
         onClose={() => setIsLocalFilesOpen(false)}
         activeTestPack={activeTest}
         allTests={tests}
+        flashcards={flashcards}
+        answersByTest={answersByTest}
+        reportsByTest={reportsByTest}
+        onImportTests={(imported) => {
+          setTests((prev) => {
+            const impMap = new Map(imported.map((t) => [t.id, t]));
+            const next = [...imported, ...prev.filter((t) => !impMap.has(t.id))];
+            return next;
+          });
+          if (imported.length > 0) {
+            setActiveTestId(imported[0].id);
+          }
+        }}
+        onImportFlashcards={(importedCards) => {
+          setFlashcards((prev) => {
+            const cardMap = new Map(importedCards.map((c) => [c.id, c]));
+            return [...importedCards, ...prev.filter((c) => !cardMap.has(c.id))];
+          });
+        }}
+        onImportAnswers={(importedAnswers) => {
+          setAnswersByTest((prev) => ({ ...prev, ...importedAnswers }));
+        }}
+        onImportReports={(importedReports) => {
+          setReportsByTest((prev) => ({
+            ...prev,
+            ...(importedReports as Record<string, PedagogicalReport>),
+          }));
+        }}
         onSelectTest={(id) => setActiveTestId(id)}
         onPlayAudio={(sec) => seekAndPlay(sec, null)}
       />
