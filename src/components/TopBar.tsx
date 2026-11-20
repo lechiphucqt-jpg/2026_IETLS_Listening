@@ -1,5 +1,12 @@
-import React from 'react';
-import { Cloud, FolderInput, HardDrive, Key, Maximize, Minimize } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Camera, Cloud, FolderInput, HardDrive, Key, Maximize, Minimize, X } from 'lucide-react';
+import {
+  CUSTOM_LOGO_STORAGE_KEY,
+  getCustomLogoFromStorage,
+  processLogoImageFile,
+  removeCustomLogoFromStorage,
+  saveCustomLogoToStorage,
+} from '../utils/indexedDBStorage';
 
 export type WorkspaceView = 'exam' | 'analysis' | 'practice' | 'vocabulary';
 
@@ -33,23 +40,148 @@ export const TopBar: React.FC<TopBarProps> = ({
   isFullscreen = false,
   onToggleFullscreen,
 }) => {
+  // Custom brand logo state (embedded & permanently stored in LocalStorage + IndexedDB)
+  const [customLogo, setCustomLogo] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(CUSTOM_LOGO_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const [isProcessingLogo, setIsProcessingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Rehydrate logo from IndexedDB
+  useEffect(() => {
+    void (async () => {
+      const stored = await getCustomLogoFromStorage();
+      if (stored) {
+        setCustomLogo(stored);
+      }
+    })();
+
+    const handleLogoUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<string | null>;
+      setCustomLogo(customEvent.detail);
+    };
+
+    window.addEventListener('lexisync-logo-updated', handleLogoUpdated);
+    return () => {
+      window.removeEventListener('lexisync-logo-updated', handleLogoUpdated);
+    };
+  }, []);
+
+  const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingLogo(true);
+    try {
+      const dataUrl = await processLogoImageFile(file, 512);
+      await saveCustomLogoToStorage(dataUrl);
+      setCustomLogo(dataUrl);
+      window.dispatchEvent(new CustomEvent('lexisync-logo-updated', { detail: dataUrl }));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Không thể xử lý tệp ảnh logo.');
+    } finally {
+      setIsProcessingLogo(false);
+      if (logoInputRef.current) {
+        logoInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!window.confirm('Bạn có chắc muốn xóa logo này và quay lại biểu tượng P mặc định?')) return;
+    try {
+      await removeCustomLogoFromStorage();
+      setCustomLogo(null);
+      window.dispatchEvent(new CustomEvent('lexisync-logo-updated', { detail: null }));
+    } catch {
+      setCustomLogo(null);
+    }
+  };
+
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-emerald-100 shadow-xs">
       <div className="max-w-[1400px] mx-auto px-6 h-16 flex items-center justify-between gap-6">
-        {/* Brand wordmark with International Academic Standard badge */}
-        <button
-          type="button"
-          onClick={() => onChangeView?.('exam')}
-          className="flex items-center gap-2.5 text-lg font-black tracking-tight text-[#15803D] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 rounded select-none group"
-        >
-          <div className="w-8 h-8 rounded-full bg-[#15803D] flex items-center justify-center text-white font-black text-sm shadow-xs group-hover:scale-105 transition-transform">
-            P
+        {/* Brand wordmark with interactive Logo upload button */}
+        <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0 select-none">
+          {/* Nút chèn / đổi Logo thương hiệu */}
+          <div className="relative group/logo">
+            <button
+              type="button"
+              onClick={() => logoInputRef.current?.click()}
+              disabled={isProcessingLogo}
+              className="relative block w-8 h-8 rounded-full focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-1 cursor-pointer transition-transform"
+              title={
+                customLogo
+                  ? 'Nhấp để đổi logo thương hiệu (lưu vĩnh viễn trên máy)'
+                  : 'Nhấp để chèn logo thương hiệu của bạn (lưu vĩnh viễn trên máy)'
+              }
+              aria-label="Chèn hoặc đổi logo thương hiệu"
+            >
+              {customLogo ? (
+                <img
+                  src={customLogo}
+                  alt="Logo thương hiệu"
+                  className="w-8 h-8 rounded-full object-contain bg-white border border-emerald-300 shadow-xs p-0.5 group-hover/logo:scale-105 transition-transform"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-[#15803D] flex items-center justify-center text-white font-black text-sm shadow-xs group-hover/logo:scale-105 group-hover/logo:bg-[#0D5A30] transition-all relative overflow-hidden">
+                  <span>P</span>
+                  <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover/logo:opacity-100 transition-opacity">
+                    <Camera className="w-3.5 h-3.5 text-white" />
+                  </div>
+                </div>
+              )}
+
+              {/* Hover overlay when custom logo is set */}
+              {customLogo && (
+                <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover/logo:opacity-100 transition-opacity">
+                  <Camera className="w-3.5 h-3.5 text-white" />
+                </div>
+              )}
+            </button>
+
+            {/* Nút xóa logo khi di chuột vào */}
+            {customLogo && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleRemoveLogo();
+                }}
+                title="Xóa logo và quay lại chữ P mặc định"
+                className="absolute -top-1 -right-1 w-4 h-4 bg-rose-600 hover:bg-rose-700 text-white rounded-full flex items-center justify-center text-[10px] shadow-xs cursor-pointer opacity-0 group-hover/logo:opacity-100 transition-opacity z-10"
+                aria-label="Xóa logo"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            )}
+
+            <input
+              type="file"
+              ref={logoInputRef}
+              onChange={handleLogoFileChange}
+              accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
+              className="hidden"
+            />
           </div>
-          <span className="group-hover:text-emerald-800 transition-colors">Tiếng Anh Thầy Phúc</span>
-          <span className="hidden sm:inline-block px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 tracking-wider">
-            Vocabulary Bank • IELTS
-          </span>
-        </button>
+
+          {/* Tên thương hiệu: Tiếng Anh Thầy Phúc */}
+          <button
+            type="button"
+            onClick={() => onChangeView?.('exam')}
+            className="flex items-center gap-2.5 text-lg font-black tracking-tight text-[#15803D] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 rounded select-none group"
+            title="Về màn hình chính"
+          >
+            <span className="group-hover:text-emerald-800 transition-colors">Tiếng Anh Thầy Phúc</span>
+            <span className="hidden sm:inline-block px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 tracking-wider">
+              Vocabulary Bank • IELTS
+            </span>
+          </button>
+        </div>
 
         {/* Actions & Accessibility Controls */}
         <div className="flex items-center gap-2.5 shrink-0">

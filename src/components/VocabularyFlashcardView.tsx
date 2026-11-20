@@ -69,6 +69,26 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
   const [manualDef, setManualDef] = useState('');
   const [manualIpa, setManualIpa] = useState('');
 
+  // Brand Logo state (syncs with system logo)
+  const [customLogo, setCustomLogo] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('lexisync_custom_app_logo');
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    const handleLogoUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<string | null>;
+      setCustomLogo(customEvent.detail);
+    };
+    window.addEventListener('lexisync-logo-updated', handleLogoUpdated);
+    return () => {
+      window.removeEventListener('lexisync-logo-updated', handleLogoUpdated);
+    };
+  }, []);
+
   useEffect(() => {
     setCardIndex(0);
     setIsFlipped(false);
@@ -238,16 +258,25 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
     <div className="max-w-[1240px] mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
       {/* Top Emerald Banner (Tiếng Anh Thầy Phúc - Vocabulary Bank style) */}
       <div className="bg-[#15803D] text-white rounded-2xl p-5 md:p-6 shadow-md flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <span className="inline-block text-[11px] font-black uppercase tracking-wider text-emerald-200 bg-emerald-800/80 px-3 py-1 rounded-full border border-emerald-600/50 mb-2">
-            VOCABULARY BANK • {testPack.partLabel}
-          </span>
-          <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight">
-            {testPack.title}
-          </h1>
-          <p className="text-xs sm:text-sm text-emerald-100 font-medium mt-1">
-            Chủ đề: <strong className="text-white">{testPack.topic}</strong> · Mục tiêu: <strong className="text-white">{testPack.bandTarget}</strong> · Kho <strong className="text-white">{testPack.vocabulary.length}</strong> từ vựng sát ngữ cảnh bài
-          </p>
+        <div className="flex items-center gap-4">
+          {customLogo && (
+            <img
+              src={customLogo}
+              alt="Logo"
+              className="w-14 h-14 rounded-2xl object-contain bg-white p-1.5 shadow-md border-2 border-emerald-300 shrink-0"
+            />
+          )}
+          <div>
+            <span className="inline-block text-[11px] font-black uppercase tracking-wider text-emerald-200 bg-emerald-800/80 px-3 py-1 rounded-full border border-emerald-600/50 mb-2">
+              VOCABULARY BANK • {testPack.partLabel}
+            </span>
+            <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight">
+              {testPack.title}
+            </h1>
+            <p className="text-xs sm:text-sm text-emerald-100 font-medium mt-1">
+              Chủ đề: <strong className="text-white">{testPack.topic}</strong> · Mục tiêu: <strong className="text-white">{testPack.bandTarget}</strong> · Kho <strong className="text-white">{testPack.vocabulary.length}</strong> từ vựng sát ngữ cảnh bài
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">

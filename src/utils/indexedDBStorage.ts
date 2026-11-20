@@ -233,6 +233,163 @@ export async function clearDirectoryHandleFromDB(): Promise<void> {
   }
 }
 
+export const CUSTOM_LOGO_STORAGE_KEY = 'lexisync_custom_app_logo';
+
+/**
+ * Process and optimize an uploaded logo image file into a high-res base64 Data URL
+ */
+export function processLogoImageFile(file: File, maxDim = 512): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('Tệp tải lên không phải là định dạng hình ảnh hợp lệ.'));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const rawDataUrl = e.target?.result as string;
+      if (!rawDataUrl) {
+        reject(new Error('Không thể đọc dữ liệu ảnh.'));
+        return;
+      }
+
+      // If SVG image, keep vector quality intact
+      if (file.type === 'image/svg+xml') {
+        resolve(rawDataUrl);
+        return;
+      }
+
+      // Resize & optimize bitmap formats using canvas
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(rawDataUrl);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const optimized = canvas.toDataURL('image/png');
+        resolve(optimized);
+      };
+
+      img.onerror = () => resolve(rawDataUrl);
+      img.src = rawDataUrl;
+    };
+
+    reader.onerror = () => reject(new Error('Lỗi khi đọc tệp ảnh.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Permanently save custom logo to both localStorage and IndexedDB
+ */
+export async function saveCustomLogoToStorage(dataUrl: string): Promise<void> {
+  try {
+    localStorage.setItem(CUSTOM_LOGO_STORAGE_KEY, dataUrl);
+  } catch {
+    // ignore quota
+  }
+
+  try {
+    const db = await openMediaDatabase();
+    if (db.objectStoreNames.contains(SETTINGS_STORE)) {
+      const tx = db.transaction(SETTINGS_STORE, 'readwrite');
+      const store = tx.objectStore(SETTINGS_STORE);
+      store.put({
+        key: 'custom_app_logo',
+        dataUrl,
+        updatedAt: Date.now(),
+      });
+      await new Promise<void>((resolve) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    }
+  } catch (err) {
+    console.warn('[IndexedDB] Failed to save custom logo to IndexedDB:', err);
+  }
+}
+
+/**
+ * Retrieve custom logo from localStorage or IndexedDB
+ */
+export async function getCustomLogoFromStorage(): Promise<string | null> {
+  // 1. Try localStorage for instant synchronous access
+  try {
+    const fromLocal = localStorage.getItem(CUSTOM_LOGO_STORAGE_KEY);
+    if (fromLocal) return fromLocal;
+  } catch {
+    // ignore
+  }
+
+  // 2. Fallback to persistent IndexedDB
+  try {
+    const db = await openMediaDatabase();
+    if (db.objectStoreNames.contains(SETTINGS_STORE)) {
+      return await new Promise<string | null>((resolve) => {
+        const tx = db.transaction(SETTINGS_STORE, 'readonly');
+        const store = tx.objectStore(SETTINGS_STORE);
+        const req = store.get('custom_app_logo');
+        req.onsuccess = () => {
+          if (req.result && req.result.dataUrl) {
+            resolve(req.result.dataUrl as string);
+          } else {
+            resolve(null);
+          }
+        };
+        req.onerror = () => resolve(null);
+      });
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Permanently remove custom logo from both localStorage and IndexedDB
+ */
+export async function removeCustomLogoFromStorage(): Promise<void> {
+  try {
+    localStorage.removeItem(CUSTOM_LOGO_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+
+  try {
+    const db = await openMediaDatabase();
+    if (db.objectStoreNames.contains(SETTINGS_STORE)) {
+      const tx = db.transaction(SETTINGS_STORE, 'readwrite');
+      const store = tx.objectStore(SETTINGS_STORE);
+      store.delete('custom_app_logo');
+      await new Promise<void>((resolve) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    }
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Save an Audio or PDF Blob to IndexedDB
  */

@@ -14,9 +14,11 @@ import {
   blobToBase64,
   clearDirectoryHandleFromDB,
   downloadBlob,
+  getCustomLogoFromStorage,
   getDirectoryHandleFromDB,
   getMediaBlob,
   importTestPackage,
+  saveCustomLogoToStorage,
   saveCustomTestsToIndexedDB,
   saveDirectoryHandleToDB,
   saveFlashcardsToIndexedDB,
@@ -62,6 +64,7 @@ export interface LocalAppFullBackup {
   flashcards: FlashcardItem[];
   answersByTest?: Record<string, Record<string, string>>;
   reportsByTest?: Record<string, unknown>;
+  customLogo?: string;
   audioPackages?: Array<{
     testId: string;
     fileName: string;
@@ -197,6 +200,8 @@ export async function saveAllDataToDirectory(
     pdfUrl: t.pdfUrl && t.pdfUrl.startsWith('blob:') ? undefined : t.pdfUrl,
   }));
 
+  const savedLogo = await getCustomLogoFromStorage();
+
   const backupPayload: LocalAppFullBackup = {
     format: 'lexisync_ielts_full_backup_v1',
     version: '2.0',
@@ -206,6 +211,7 @@ export async function saveAllDataToDirectory(
     flashcards: data.flashcards,
     answersByTest: data.answersByTest,
     reportsByTest: data.reportsByTest,
+    customLogo: savedLogo || undefined,
   };
 
   // 2. Write IELTS_Listening_Data.json to the directory
@@ -355,6 +361,9 @@ export async function loadAllDataFromDirectory(
     if (parsed && parsed.reportsByTest) {
       reportsByTest = parsed.reportsByTest;
     }
+    if (parsed && parsed.customLogo) {
+      await saveCustomLogoToStorage(parsed.customLogo);
+    }
   } catch {
     // Fallback: check if directory contains other JSON or .lexisync files
     for await (const entry of nativeDir.values()) {
@@ -497,6 +506,8 @@ export async function saveBackupWithFilePicker(data: {
     }
   }
 
+  const savedLogo = await getCustomLogoFromStorage();
+
   const payload: LocalAppFullBackup = {
     format: 'lexisync_ielts_full_backup_v1',
     version: '2.0',
@@ -506,6 +517,7 @@ export async function saveBackupWithFilePicker(data: {
     flashcards: data.flashcards,
     answersByTest: data.answersByTest,
     reportsByTest: data.reportsByTest,
+    customLogo: savedLogo || undefined,
     audioPackages,
     pdfPackages,
   };
@@ -679,12 +691,20 @@ export async function restoreBackupFromFile(file: File): Promise<{
   if (flashcardsToRestore.length > 0) {
     await saveFlashcardsToIndexedDB(flashcardsToRestore);
   }
+  if (backup.customLogo) {
+    try {
+      await saveCustomLogoToStorage(backup.customLogo);
+    } catch {
+      // ignore
+    }
+  }
 
   return {
     tests: testsToRestore,
     flashcards: flashcardsToRestore,
     answersByTest: backup.answersByTest,
     reportsByTest: backup.reportsByTest,
+    customLogo: backup.customLogo,
     audioRestoredCount,
   };
 }
