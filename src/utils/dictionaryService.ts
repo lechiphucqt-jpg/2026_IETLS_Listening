@@ -280,6 +280,60 @@ export function speakWordPronunciation(word: string, lang: 'en-GB' | 'en-US' = '
 }
 
 /**
+ * Speak full sentence pronunciation using Web Speech API (British or American accent)
+ */
+export function speakSentencePronunciation(
+  sentence: string,
+  lang: 'en-GB' | 'en-US' = 'en-GB',
+  rate = 0.92
+) {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+  try {
+    window.speechSynthesis.cancel();
+    const cleanText = sentence
+      .replace(/[“”"']/g, '')
+      .replace(/\[\s*\?\s*\?\s*\]/g, '')
+      .trim();
+    if (!cleanText) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = lang;
+    utterance.rate = rate;
+
+    const voices = window.speechSynthesis.getVoices();
+    const matchedVoice = voices.find((v) => {
+      if (lang === 'en-GB') {
+        return (
+          v.lang === 'en-GB' ||
+          v.lang.startsWith('en_GB') ||
+          v.name.includes('UK') ||
+          v.name.includes('British') ||
+          v.name.includes('George') ||
+          v.name.includes('Hazel')
+        );
+      }
+      return (
+        v.lang === 'en-US' ||
+        v.lang.startsWith('en_US') ||
+        v.name.includes('US') ||
+        v.name.includes('United States') ||
+        v.name.includes('David') ||
+        v.name.includes('Zira')
+      );
+    });
+
+    if (matchedVoice) {
+      utterance.voice = matchedVoice;
+    }
+
+    window.speechSynthesis.speak(utterance);
+  } catch (err) {
+    console.warn('[SpeechSynthesis] Failed to pronounce sentence:', err);
+  }
+}
+
+/**
  * Play a clean, pleasant rhythmic tone for 3-2-1 countdown
  * beat: 440Hz warm beep (120ms)
  * start: 880Hz crisp bell chime (250ms)
