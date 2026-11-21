@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bookmark,
+  BookOpen,
+  Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Eye,
   EyeOff,
   FileDown,
   Layers,
+  Loader2,
   Maximize,
   Mic,
   Minimize,
@@ -15,11 +19,22 @@ import {
   Pause,
   Repeat,
   RotateCcw,
+  Sparkles,
+  Star,
+  Timer,
   Volume2,
   X,
 } from 'lucide-react';
-import type { ClassroomDrillSentence, ListeningTestPack } from '../types/ielts';
+import type { ClassroomDrillSentence, FlashcardItem, ListeningTestPack } from '../types/ielts';
 import { exportDictationSlidesPptx } from '../utils/pptxExport';
+import {
+  cleanWordKey,
+  lookupWordDictionary,
+  playChoralBeep,
+  speakWordPronunciation,
+  type DictionaryWordInfo,
+} from '../utils/dictionaryService';
+import { saveFlashcardsToIndexedDB } from '../utils/indexedDBStorage';
 
 export type SlidePedagogicalMode =
   | 'blind'        // 1. Ẩn chữ (Nghe mù)
@@ -185,6 +200,22 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showVocabSheet, setShowVocabSheet] = useState(false);
 
+  // 1. Choral countdown timer state
+  const [countdownDuration, setCountdownDuration] = useState<number>(15);
+  const [countdownRemaining, setCountdownRemaining] = useState<number>(15);
+  const [isCountdownRunning, setIsCountdownRunning] = useState<boolean>(false);
+  const [hasFinishedCountdown, setHasFinishedCountdown] = useState<boolean>(false);
+
+  // 2. Choral 3-2-1 lead-in state when looping
+  const [enable321LeadIn, setEnable321LeadIn] = useState<boolean>(true);
+  const [countdown321Step, setCountdown321Step] = useState<number | null>(null);
+  const countdown321TimersRef = useRef<number[]>([]);
+
+  // 3. Interactive Word Dictionary & IPA state
+  const [selectedDictWord, setSelectedDictWord] = useState<DictionaryWordInfo | null>(null);
+  const [isLookingUpWord, setIsLookingUpWord] = useState<boolean>(false);
+  const [flashcardSavedSuccess, setFlashcardSavedSuccess] = useState<boolean>(false);
+
   const wasPlayingRef = useRef(false);
   const loopTimerRef = useRef<number | null>(null);
 
@@ -336,6 +367,42 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFsChange);
   }, []);
 
+  // Clear 3-2-1 rhythmic timers
+  const clear321Timers = () => {
+    countdown321TimersRef.current.forEach((t) => window.clearTimeout(t));
+    countdown321TimersRef.current = [];
+    setCountdown321Step(null);
+  };
+
+  // Start 3-2-1 lead-in countdown before audio repeat
+  const start321LeadIn = (onPlay: () => void) => {
+    clear321Timers();
+    setCountdown321Step(3);
+    playChoralBeep('beat');
+
+    const t1 = window.setTimeout(() => {
+      setCountdown321Step(2);
+      playChoralBeep('beat');
+    }, 1000);
+
+    const t2 = window.setTimeout(() => {
+      setCountdown321Step(1);
+      playChoralBeep('beat');
+    }, 2000);
+
+    const t3 = window.setTimeout(() => {
+      setCountdown321Step(0);
+      playChoralBeep('start');
+      onPlay();
+    }, 3000);
+
+    const t4 = window.setTimeout(() => {
+      setCountdown321Step(null);
+    }, 4000);
+
+    countdown321TimersRef.current = [t1, t2, t3, t4];
+  };
+
   // Auto-loop playback for current drill sentence
   useEffect(() => {
     if (!isOpen || !isLooping || !currentDrill) {
@@ -344,6 +411,7 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
         window.clearTimeout(loopTimerRef.current);
         loopTimerRef.current = null;
       }
+      clear321Timers();
       return;
     }
 
@@ -352,12 +420,24 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
       if (loopTimerRef.current) {
         window.clearTimeout(loopTimerRef.current);
       }
-      loopTimerRef.current = window.setTimeout(() => {
-        if (isOpen && isLooping && currentDrill) {
-          setLoopCount((prev) => prev + 1);
-          onPlaySegment(currentDrill.startSec, currentDrill.endSec);
-        }
-      }, 500);
+      clear321Timers();
+
+      // In Mode 5 (Đọc đồng thanh) with 3-2-1 countdown enabled
+      if (activeMode === 'choral' && enable321LeadIn) {
+        start321LeadIn(() => {
+          if (isOpen && isLooping && currentDrill) {
+            setLoopCount((prev) => prev + 1);
+            onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+          }
+        });
+      } else {
+        loopTimerRef.current = window.setTimeout(() => {
+          if (isOpen && isLooping && currentDrill) {
+            setLoopCount((prev) => prev + 1);
+            onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+          }
+        }, 500);
+      }
     }
 
     wasPlayingRef.current = isPlaying;
@@ -366,32 +446,139 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
       if (loopTimerRef.current) {
         window.clearTimeout(loopTimerRef.current);
       }
+      clear321Timers();
     };
-  }, [isPlaying, isLooping, isOpen, currentDrill, onPlaySegment]);
+  }, [isPlaying, isLooping, isOpen, currentDrill, activeMode, enable321LeadIn, onPlaySegment]);
 
-  // When changing slides while looping, auto-play the new sentence
+  // Choral countdown timer interval effect
+  useEffect(() => {
+    if (activeMode !== 'choral') {
+      setIsCountdownRunning(false);
+      return;
+    }
+
+    if (isCountdownRunning) {
+      const timer = window.setInterval(() => {
+        setCountdownRemaining((prev) => {
+          if (prev <= 1) {
+            setIsCountdownRunning(false);
+            setHasFinishedCountdown(true);
+            playChoralBeep('start');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => window.clearInterval(timer);
+    }
+  }, [isCountdownRunning, activeMode]);
+
+  // When changing slides, reset timers & clear states
   useEffect(() => {
     if (loopTimerRef.current) {
       window.clearTimeout(loopTimerRef.current);
       loopTimerRef.current = null;
     }
+    clear321Timers();
     setLoopCount(0);
-    if (isOpen && isLooping && currentDrill) {
-      onPlaySegment(currentDrill.startSec, currentDrill.endSec);
-    }
-  }, [currentSlideIdx]);
+    setCountdownRemaining(countdownDuration);
+    setIsCountdownRunning(false);
+    setHasFinishedCountdown(false);
+    setSelectedDictWord(null);
 
-  // Reset loop on modal close
+    if (isOpen && isLooping && currentDrill) {
+      if (activeMode === 'choral' && enable321LeadIn) {
+        start321LeadIn(() => {
+          onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+        });
+      } else {
+        onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+      }
+    }
+  }, [currentSlideIdx, countdownDuration]);
+
+  // Reset on modal close
   useEffect(() => {
     if (!isOpen) {
       setIsLooping(false);
       setLoopCount(0);
+      setIsCountdownRunning(false);
+      setSelectedDictWord(null);
+      clear321Timers();
       if (loopTimerRef.current) {
         window.clearTimeout(loopTimerRef.current);
         loopTimerRef.current = null;
       }
     }
   }, [isOpen]);
+
+  // Dictionary word lookup
+  const handleLookupWord = async (rawWord: string) => {
+    const clean = cleanWordKey(rawWord);
+    if (!clean) return;
+
+    setIsLookingUpWord(true);
+    setFlashcardSavedSuccess(false);
+
+    try {
+      const result = await lookupWordDictionary(clean, currentDrill.sentence, testPack.vocabulary);
+      setSelectedDictWord(result);
+    } catch {
+      // fallback
+    } finally {
+      setIsLookingUpWord(false);
+    }
+  };
+
+  // Add word to flashcards permanently
+  const handleSaveToFlashcards = async (info: DictionaryWordInfo) => {
+    const rawCards = localStorage.getItem('lexisync_ielts_flashcards_v1');
+    let currentCards: FlashcardItem[] = [];
+    if (rawCards) {
+      try {
+        currentCards = JSON.parse(rawCards);
+      } catch {
+        currentCards = [];
+      }
+    }
+
+    const clean = cleanWordKey(info.word);
+    const exists = currentCards.some((c) => cleanWordKey(c.word) === clean);
+    if (!exists) {
+      const newCard: FlashcardItem = {
+        id: `card_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        testId: testPack.id,
+        word: info.word,
+        ipa: info.ipaUk || '/.../',
+        pos: info.pos || 'word',
+        definitionVi: info.contextualMeaningVi || info.meaningVi,
+        contextualMeaningVi: info.contextualMeaningVi || info.meaningVi,
+        definitionEn: info.definitionEn,
+        exampleInAudio: currentDrill.sentence,
+        timestampLabel: currentDrill.timestampLabel,
+        sourceTitle: `${testPack.title} • ${currentDrill.speaker || 'Classroom Slide'}`,
+        status: 'new',
+        addedAt: new Date().toISOString(),
+      };
+
+      const updated = [newCard, ...currentCards];
+      try {
+        localStorage.setItem('lexisync_ielts_flashcards_v1', JSON.stringify(updated));
+        await saveFlashcardsToIndexedDB(updated);
+        window.dispatchEvent(new CustomEvent('lexisync-flashcard-added', { detail: newCard }));
+      } catch {
+        // ignore
+      }
+    }
+    setFlashcardSavedSuccess(true);
+  };
+
+  const formatTimer = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
 
   if (!isOpen || drills.length === 0 || !currentDrill) return null;
 
@@ -863,21 +1050,28 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
             {activeMode === 'full_reveal' && (
               <div className="w-full max-w-4xl mx-auto py-2">
                 <div className="bg-[#101426]/90 border-l-8 border-purple-500 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-md">
-                  <p className="text-xl sm:text-2xl md:text-3xl font-extrabold leading-snug tracking-tight text-white mb-4">
+                  <p className="text-xl sm:text-2xl md:text-3xl font-extrabold leading-snug tracking-tight text-white mb-3">
                     “
                     {tokens.map((token) => (
-                      <span
+                      <button
                         key={token.id}
+                        type="button"
+                        onClick={() => handleLookupWord(token.wordOnly)}
+                        title={`Bấm để tra IPA & nghĩa: ${token.wordOnly}`}
                         className={
                           token.isKeyword
-                            ? 'inline-block bg-purple-900/60 text-purple-200 border border-purple-400/50 px-2 py-0.5 mx-1 rounded-lg font-bold shadow-xs'
-                            : 'inline'
+                            ? 'inline-block bg-purple-900/70 text-purple-200 border border-purple-400/50 px-2 py-0.5 mx-1 rounded-lg font-bold shadow-xs hover:bg-purple-800 hover:text-white cursor-pointer transition-all'
+                            : 'inline hover:text-purple-300 hover:underline cursor-pointer transition-colors'
                         }
                       >
                         {token.raw}{' '}
-                      </span>
+                      </button>
                     ))}
                     ”
+                  </p>
+                  <p className="text-[11px] text-purple-300/80 italic mb-4 flex items-center gap-1 select-none">
+                    <span>💡</span>
+                    <span>Bấm vào bất kỳ từ nào để tra phát âm chuẩn IPA và nghĩa tiếng Việt</span>
                   </p>
 
                   {currentDrill.translationVi && (
@@ -918,20 +1112,72 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
 
             {/* MODE 5: Đọc đồng thanh */}
             {activeMode === 'choral' && (
-              <div className="w-full max-w-4xl mx-auto py-2 text-center">
-                <div className="bg-[#101426]/90 border-2 border-indigo-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl">
-                  <div className="text-xl sm:text-2xl md:text-3xl font-extrabold leading-relaxed tracking-tight text-white mb-6">
-                    {choralChunks.map((chunk, cIdx) => (
-                      <span key={cIdx} className="inline-block mx-1.5 my-1">
-                        <span className="text-purple-300 font-black px-2.5 py-1 bg-purple-950/60 rounded-xl border border-purple-500/30">
-                          {chunk}
-                        </span>
-                        {cIdx < choralChunks.length - 1 && (
-                          <span className="text-slate-600 font-light mx-2">/</span>
-                        )}
-                      </span>
-                    ))}
+              <div className="relative w-full max-w-4xl mx-auto py-2 text-center">
+                {/* 3-2-1 Lead-in Overlay when Looping */}
+                {countdown321Step !== null && (
+                  <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/85 backdrop-blur-xs rounded-3xl animate-in fade-in zoom-in duration-200">
+                    {countdown321Step > 0 ? (
+                      <div className="text-center">
+                        <div className="w-28 h-28 rounded-full bg-gradient-to-tr from-amber-500 to-purple-600 flex items-center justify-center shadow-2xl ring-8 ring-amber-400/30 mx-auto animate-pulse">
+                          <span className="text-6xl font-black text-white font-mono">{countdown321Step}</span>
+                        </div>
+                        <p className="mt-4 text-base font-extrabold text-amber-300 uppercase tracking-widest">
+                          Chuẩn bị đọc...
+                        </p>
+                        <p className="text-xs text-slate-300 mt-1">Đếm nhịp chuẩn bị vào câu lặp</p>
+                      </div>
+                    ) : (
+                      <div className="text-center animate-bounce">
+                        <div className="px-8 py-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 shadow-2xl ring-4 ring-emerald-400/40">
+                          <span className="text-2xl sm:text-3xl font-black text-white tracking-wide">
+                            🗣️ CẢ LỚP ĐỌC ĐỒNG THANH!
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
+                )}
+
+                <div className="bg-[#101426]/90 border-2 border-indigo-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl">
+                  {/* Choral Chunks with Interactive Word Click */}
+                  <div className="text-xl sm:text-2xl md:text-3xl font-extrabold leading-relaxed tracking-tight text-white mb-2">
+                    {choralChunks.map((chunk, cIdx) => {
+                      const words = chunk.split(/(\s+)/);
+                      return (
+                        <span key={cIdx} className="inline-block mx-1.5 my-1">
+                          <span className="text-purple-300 font-black px-3 py-1.5 bg-purple-950/60 rounded-xl border border-purple-500/30 inline-block shadow-xs">
+                            {words.map((part, pIdx) => {
+                              const clean = cleanWordKey(part);
+                              if (!clean || /^\s+$/.test(part)) {
+                                return <span key={pIdx}>{part}</span>;
+                              }
+                              return (
+                                <button
+                                  key={pIdx}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleLookupWord(clean);
+                                  }}
+                                  title={`Bấm để tra IPA & nghĩa: ${clean}`}
+                                  className="hover:text-amber-300 hover:underline cursor-pointer transition-colors inline-block"
+                                >
+                                  {part}
+                                </button>
+                              );
+                            })}
+                          </span>
+                          {cIdx < choralChunks.length - 1 && (
+                            <span className="text-slate-600 font-light mx-2">/</span>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  <p className="text-[11px] text-purple-300/80 italic mb-5 select-none">
+                    💡 Bấm trực tiếp vào từng từ trên câu để nghe phát âm IPA và tra nghĩa tiếng Việt
+                  </p>
 
                   {/* Audio shadow controller */}
                   <div className="flex flex-wrap items-center justify-center gap-3 pt-5 border-t border-slate-800">
@@ -967,6 +1213,35 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
                       </span>
                     </button>
 
+                    {/* 3-2-1 Lead-in Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setEnable321LeadIn((prev) => !prev)}
+                      className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        enable321LeadIn
+                          ? 'bg-purple-900/80 border-purple-500 text-purple-200 ring-1 ring-purple-400/40'
+                          : 'bg-slate-800 border-slate-700 text-slate-400'
+                      }`}
+                      title="Bật/Tắt đếm nhịp 3-2-1 trước mỗi lần lặp lại"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Nhịp 3-2-1: {enable321LeadIn ? 'BẬT' : 'TẮT'}</span>
+                    </button>
+
+                    {/* Manual 3-2-1 Trigger */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        start321LeadIn(() => {
+                          if (currentDrill) onPlaySegment(currentDrill.startSec, currentDrill.endSec);
+                        });
+                      }}
+                      className="px-3 py-2 rounded-xl bg-indigo-900/60 hover:bg-indigo-800 border border-indigo-700/60 text-indigo-200 text-xs font-semibold cursor-pointer transition-colors"
+                      title="Kích hoạt nhịp 3-2-1 ngay bây giờ"
+                    >
+                      ⚡ Đếm nhịp 3-2-1 vào câu
+                    </button>
+
                     {/* Speed selector */}
                     {onChangeRate && (
                       <div className="inline-flex items-center bg-slate-800 p-0.5 rounded-lg border border-slate-700">
@@ -986,6 +1261,104 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
                         ))}
                       </div>
                     )}
+                  </div>
+
+                  {/* Countdown Timer Widget for Choral Reading */}
+                  <div className="mt-6 pt-5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 bg-[#0B0F1C]/80 px-4 py-3 rounded-2xl border border-indigo-900/40">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`p-2 rounded-xl ${
+                          isCountdownRunning
+                            ? 'bg-amber-500/20 text-amber-400 animate-pulse'
+                            : 'bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        <Timer className="w-5 h-5" />
+                      </div>
+                      <div className="text-left">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-300">Đồng hồ đếm ngược luyện đọc</span>
+                          {hasFinishedCountdown && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-900/80 text-emerald-300 border border-emerald-700">
+                              Hết giờ!
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {[10, 15, 20, 30, 45, 60].map((sec) => (
+                            <button
+                              key={sec}
+                              type="button"
+                              onClick={() => {
+                                setCountdownDuration(sec);
+                                setCountdownRemaining(sec);
+                                setIsCountdownRunning(false);
+                                setHasFinishedCountdown(false);
+                              }}
+                              className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold transition-all cursor-pointer ${
+                                countdownDuration === sec
+                                  ? 'bg-purple-600 text-white'
+                                  : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              {sec}s
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 ml-auto">
+                      <div className="text-center font-mono">
+                        <span
+                          className={`text-2xl font-black tabular-nums ${
+                            countdownRemaining <= 5 && isCountdownRunning
+                              ? 'text-rose-400 animate-pulse'
+                              : countdownRemaining <= 10 && isCountdownRunning
+                              ? 'text-amber-400'
+                              : 'text-white'
+                          }`}
+                        >
+                          {formatTimer(countdownRemaining)}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (countdownRemaining === 0) {
+                            setCountdownRemaining(countdownDuration);
+                            setHasFinishedCountdown(false);
+                          }
+                          setIsCountdownRunning((prev) => !prev);
+                        }}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow cursor-pointer ${
+                          isCountdownRunning
+                            ? 'bg-amber-600 hover:bg-amber-500 text-white'
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                        }`}
+                      >
+                        {isCountdownRunning ? (
+                          <Pause className="w-3.5 h-3.5 fill-current" />
+                        ) : (
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                        )}
+                        <span>{isCountdownRunning ? 'Dừng' : 'Bắt đầu'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCountdownRunning(false);
+                          setCountdownRemaining(countdownDuration);
+                          setHasFinishedCountdown(false);
+                        }}
+                        className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                        title="Đặt lại đồng hồ"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1159,6 +1532,142 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
                   Đã hiểu
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Interactive Dictionary & IPA Modal Popover */}
+        {(selectedDictWord || isLookingUpWord) && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dict-modal-title"
+            className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-fadeIn"
+            onClick={() => {
+              if (!isLookingUpWord) setSelectedDictWord(null);
+            }}
+          >
+            <div
+              className="relative w-full max-w-md bg-[#0F1426] border-2 border-purple-500/50 rounded-3xl p-6 shadow-2xl text-white animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {isLookingUpWord ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-3 text-center">
+                  <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+                  <p className="text-sm font-semibold text-purple-200">Đang tra từ điển & phiên âm IPA...</p>
+                </div>
+              ) : selectedDictWord ? (
+                <>
+                  {/* Header */}
+                  <div className="flex items-start justify-between pb-3.5 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="w-5 h-5 text-purple-400" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-purple-300">
+                        Tra từ điển ngữ cảnh
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDictWord(null)}
+                      className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg cursor-pointer"
+                      aria-label="Đóng tra từ"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Word title & IPA pronunciation */}
+                  <div className="mt-4">
+                    <div className="flex flex-wrap items-baseline gap-2.5">
+                      <h3 id="dict-modal-title" className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                        {selectedDictWord.word}
+                      </h3>
+                      {selectedDictWord.pos && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase bg-purple-950 text-purple-300 border border-purple-800">
+                          {selectedDictWord.pos}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Pronunciation buttons: UK & US */}
+                    <div className="flex flex-wrap items-center gap-2 mt-3">
+                      {selectedDictWord.ipaUk && (
+                        <button
+                          type="button"
+                          onClick={() => speakWordPronunciation(selectedDictWord.word, 'en-GB')}
+                          className="px-3 py-1.5 rounded-xl bg-purple-950/80 hover:bg-purple-900 border border-purple-700/60 text-purple-200 text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                          title="Nghe phát âm chuẩn Anh - Anh (UK)"
+                        >
+                          <Volume2 className="w-3.5 h-3.5 text-purple-400" />
+                          <span>UK: {selectedDictWord.ipaUk}</span>
+                        </button>
+                      )}
+                      {selectedDictWord.ipaUs && (
+                        <button
+                          type="button"
+                          onClick={() => speakWordPronunciation(selectedDictWord.word, 'en-US')}
+                          className="px-3 py-1.5 rounded-xl bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-200 text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                          title="Nghe phát âm chuẩn Anh - Mỹ (US)"
+                        >
+                          <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>US: {selectedDictWord.ipaUs}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Contextual Vietnamese Meaning */}
+                  <div className="mt-4 p-3.5 rounded-2xl bg-[#151B33] border border-slate-800">
+                    <div className="text-xs font-bold text-amber-400 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                      <span>🇻🇳 Nghĩa tiếng Việt sát ngữ cảnh:</span>
+                    </div>
+                    <p className="text-sm font-semibold text-slate-100 leading-snug">
+                      {selectedDictWord.contextualMeaningVi || selectedDictWord.meaningVi}
+                    </p>
+                  </div>
+
+                  {/* English definition if available */}
+                  {selectedDictWord.definitionEn && (
+                    <div className="mt-2.5 p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 text-xs text-slate-300">
+                      <span className="text-purple-400 font-bold block mb-0.5">English Definition:</span>
+                      <p className="italic">{selectedDictWord.definitionEn}</p>
+                    </div>
+                  )}
+
+                  {/* Actions: Save to Flashcards / Close */}
+                  <div className="mt-5 pt-3.5 border-t border-slate-800 flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveToFlashcards(selectedDictWord)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        flashcardSavedSuccess
+                          ? 'bg-emerald-700 text-emerald-100 border border-emerald-500'
+                          : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md'
+                      }`}
+                    >
+                      {flashcardSavedSuccess ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          <span>Đã lưu vào Flashcards!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Star className="w-4 h-4 fill-current" />
+                          <span>Lưu vào thẻ Flashcards</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDictWord(null)}
+                      className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                    >
+                      Đóng
+                    </button>
+                  </div>
+                </>
+              ) : null}
             </div>
           </div>
         )}
