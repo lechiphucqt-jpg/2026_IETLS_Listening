@@ -1651,6 +1651,11 @@ export default function App() {
               setFlashcards((prev) => prev.filter((c) => c.id !== id))
             }
             onSeekAndPlay={(sec) => seekAndPlay(sec, null)}
+            onPlaySegment={(start, end) => seekAndPlay(start, end ?? null)}
+            onTogglePlay={handleTogglePlay}
+            isPlaying={isPlaying}
+            playbackRate={playbackRate}
+            onChangeRate={setPlaybackRate}
             onTranslateVocab={handleTranslateVocab}
           />
         )}

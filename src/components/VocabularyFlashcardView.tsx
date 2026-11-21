@@ -3,8 +3,10 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  FileDown,
   Languages,
   Loader2,
+  MonitorPlay,
   Play,
   Plus,
   RotateCw,
@@ -12,6 +14,8 @@ import {
   Volume2,
 } from 'lucide-react';
 import type { AwlVocabItem, FlashcardItem, ListeningTestPack } from '../types/ielts';
+import { exportVocabularySlidesPptx } from '../utils/pptxExport';
+import { VocabularySlideModal } from './VocabularySlideModal';
 
 interface VocabularyFlashcardViewProps {
   testPack: ListeningTestPack;
@@ -22,6 +26,11 @@ interface VocabularyFlashcardViewProps {
   onUpdateStatus: (id: string, status: FlashcardItem['status']) => void;
   onDeleteFlashcard: (id: string) => void;
   onSeekAndPlay: (sec: number) => void;
+  onPlaySegment?: (startSec: number, endSec?: number) => void;
+  onTogglePlay?: () => void;
+  isPlaying?: boolean;
+  playbackRate?: number;
+  onChangeRate?: (rate: number) => void;
   onTranslateVocab: (
     word: string,
     sentenceContext: string,
@@ -51,12 +60,18 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
   onUpdateStatus,
   onDeleteFlashcard,
   onSeekAndPlay,
+  onPlaySegment,
+  onTogglePlay,
+  isPlaying = false,
+  playbackRate = 1.0,
+  onChangeRate,
   onTranslateVocab,
 }) => {
   const [scope, setScope] = useState<'lesson' | 'all'>('lesson');
   const [filter, setFilter] = useState<'all' | FlashcardItem['status']>('all');
   const [cardIndex, setCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
+  const [isSlideModalOpen, setIsSlideModalOpen] = useState(false);
 
   // Contextual AI word translator form state
   const [customWord, setCustomWord] = useState('');
@@ -280,7 +295,27 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <label htmlFor="vocab-lesson-select" className="text-xs font-bold text-emerald-100">
+          <button
+            type="button"
+            onClick={() => setIsSlideModalOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-950 hover:bg-black text-white text-xs font-black rounded-xl border-2 border-emerald-400 shadow-lg transition-all hover:scale-105 active:scale-95 cursor-pointer"
+            title="Mở chế độ trình chiếu Slide 16:9 cho lớp học với âm thanh và phím tắt"
+          >
+            <MonitorPlay className="w-4 h-4 text-emerald-300" />
+            <span>Trình chiếu Slide (16:9)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => exportVocabularySlidesPptx(testPack, filteredCards)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl border border-white/20 transition-all cursor-pointer"
+            title="Xuất Slide PowerPoint 16:9 (.pptx)"
+          >
+            <FileDown className="w-3.5 h-3.5 text-emerald-200" />
+            <span className="hidden sm:inline">Xuất Slide (.pptx)</span>
+          </button>
+
+          <label htmlFor="vocab-lesson-select" className="text-xs font-bold text-emerald-100 ml-1">
             Chọn bài:
           </label>
           <select
@@ -443,9 +478,20 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse"></span>
                 <span>Bài: {currentCard.sourceTitle} · {currentCard.timestampLabel}</span>
               </span>
-              <span className="font-mono tabular-nums bg-emerald-50 text-emerald-900 border border-emerald-200 px-3 py-1 rounded-full text-xs font-extrabold shadow-2xs">
-                Thẻ {safeIndex + 1} / {filteredCards.length}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSlideModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-500 rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer hover:scale-105 active:scale-95"
+                  title="Mở trình chiếu Slide 16:9 cho lớp học"
+                >
+                  <MonitorPlay className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>Trình chiếu Slide (16:9)</span>
+                </button>
+                <span className="font-mono tabular-nums bg-emerald-50 text-emerald-900 border border-emerald-200 px-3 py-1 rounded-full text-xs font-extrabold shadow-2xs">
+                  Thẻ {safeIndex + 1} / {filteredCards.length}
+                </span>
+              </div>
             </div>
 
             {/* THE GREEN FLASHCARD WITH 40PT WHITE FONT */}
@@ -819,6 +865,20 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
           </table>
         </div>
       </section>
+
+      {/* 16:9 Vocabulary Classroom Slide Modal */}
+      <VocabularySlideModal
+        isOpen={isSlideModalOpen}
+        onClose={() => setIsSlideModalOpen(false)}
+        testPack={testPack}
+        cards={filteredCards}
+        initialIndex={safeIndex}
+        onPlaySegment={onPlaySegment || ((start, end) => onSeekAndPlay(start))}
+        onTogglePlay={onTogglePlay}
+        isPlaying={isPlaying}
+        playbackRate={playbackRate}
+        onChangeRate={onChangeRate}
+      />
     </div>
   );
 };
