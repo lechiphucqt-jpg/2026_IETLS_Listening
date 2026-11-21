@@ -42,6 +42,9 @@ interface VocabularyFlashcardViewProps {
 interface LessonDeckCard extends FlashcardItem {
   isSaved: boolean;
   sourceVocab?: AwlVocabItem;
+  timestampSec?: number;
+  timestampEndSec?: number;
+  contextSentence?: string;
 }
 
 function parseTimestampToSec(label?: string): number | null {
@@ -132,8 +135,13 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
         if (saved) {
           return {
             ...saved,
-            contextualMeaningVi: v.contextualMeaningVi || saved.contextualMeaningVi,
+            // When in current lesson, prioritize current lesson's actual example sentence and audio timestamps
+            exampleInAudio: v.exampleInAudio || saved.exampleInAudio,
             exampleTranslationVi: v.exampleTranslationVi || saved.exampleTranslationVi,
+            timestampLabel: v.timestampLabel || saved.timestampLabel,
+            timestampSec: v.timestampSec,
+            timestampEndSec: v.timestampEndSec,
+            contextualMeaningVi: v.contextualMeaningVi || saved.contextualMeaningVi,
             isSaved: true,
             sourceVocab: v,
           };
@@ -150,6 +158,8 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
           exampleInAudio: v.exampleInAudio,
           exampleTranslationVi: v.exampleTranslationVi || '',
           timestampLabel: v.timestampLabel,
+          timestampSec: v.timestampSec,
+          timestampEndSec: v.timestampEndSec,
           sourceTitle: testPack.title,
           status: 'new',
           addedAt: '',
@@ -378,8 +388,16 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
               <button
                 type="button"
                 onClick={() => {
-                  const sec = parseTimestampToSec(currentCard.timestampLabel);
-                  if (sec !== null) onSeekAndPlay(sec);
+                  const sec = currentCard.timestampSec ?? parseTimestampToSec(currentCard.timestampLabel);
+                  if (sec !== null) {
+                    if (onPlaySegment && currentCard.timestampEndSec) {
+                      onPlaySegment(sec, currentCard.timestampEndSec);
+                    } else if (onPlaySegment) {
+                      onPlaySegment(sec, sec + 6.5);
+                    } else {
+                      onSeekAndPlay(sec);
+                    }
+                  }
                 }}
                 className="px-4 py-1.5 rounded-full bg-indigo-900/90 hover:bg-indigo-800 text-indigo-100 font-bold text-xs transition-colors cursor-pointer border border-indigo-700/60"
               >

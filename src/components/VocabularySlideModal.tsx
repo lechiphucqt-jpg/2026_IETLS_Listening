@@ -112,39 +112,150 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
 
   const currentCard = cards[currentSlideIdx] || cards[0];
 
-  // Match audio segment for this vocabulary item
-  const matchedAudioSegment = useMemo(() => {
-    if (!currentCard || !testPack.segments || testPack.segments.length === 0) {
-      return null;
-    }
-    const sec =
-      parseTimestampToSec(currentCard.timestampLabel) ??
-      currentCard.timestampSec ??
-      null;
+  // Precise audio timing for the current vocabulary card's example sentence
+  const cardAudioTiming = useMemo(() => {
+    if (!currentCard) return { startSec: 0, endSec: 5, label: '[00:00.00]', source: 'none' };
 
-    if (sec !== null) {
-      const byTime = testPack.segments.find(
-        (s) => s.startSec <= sec && sec <= s.endSec
+    // 1. Get explicit timestamp if present
+    const explicitSec =
+      typeof currentCard.timestampSec === 'number' && !isNaN(currentCard.timestampSec) && currentCard.timestampSec >= 0
+        ? currentCard.timestampSec
+        : parseTimestampToSec(currentCard.timestampLabel);
+
+    const explicitEndSec =
+      typeof currentCard.timestampEndSec === 'number' && !isNaN(currentCard.timestampEndSec) && currentCard.timestampEndSec > (explicitSec ?? 0)
+        ? currentCard.timestampEndSec
+        : null;
+
+    const sentenceToMatch = (currentCard.exampleInAudio || currentCard.contextSentence || '').trim().toLowerCase();
+    const cleanWord = cleanWordKey(currentCard.word || '');
+
+    // 2. Strategy A: Check classroomDrills for matching sentence
+    if (testPack.classroomDrills && testPack.classroomDrills.length > 0 && sentenceToMatch) {
+      const matchedDrill = testPack.classroomDrills.find((d) => {
+        const dText = d.sentence.toLowerCase();
+        return (
+          dText.includes(sentenceToMatch) ||
+          sentenceToMatch.includes(dText) ||
+          (cleanWord && dText.includes(cleanWord) && explicitSec !== null && Math.abs(d.startSec - explicitSec) < 15)
+        );
+      });
+      if (matchedDrill) {
+        return {
+          startSec: matchedDrill.startSec,
+          endSec: matchedDrill.endSec,
+          label: matchedDrill.timestampLabel || currentCard.timestampLabel || '[00:00.00]',
+          source: 'drill',
+        };
+      }
+    }
+
+    // 3. Strategy B: Search testPack.segments by sentence text match
+    if (testPack.segments && testPack.segments.length > 0 && sentenceToMatch) {
+      const textMatch = testPack.segments.find((s) => {
+        const sText = s.text.toLowerCase();
+        return sText.includes(sentenceToMatch) || sentenceToMatch.includes(sText);
+      });
+      if (textMatch) {
+        return {
+          startSec: textMatch.startSec,
+          endSec: textMatch.endSec,
+          label: textMatch.timestampLabel || currentCard.timestampLabel || '[00:00.00]',
+          source: 'segment_text',
+        };
+      }
+    }
+
+    // 4. Strategy C: Match segment by timestamp with fuzzy tolerance (overlap or within 3.5s)
+    if (testPack.segments && testPack.segments.length > 0 && explicitSec !== null && explicitSec >= 0) {
+      // Overlap with 0.5s padding
+      const exactOverlap = testPack.segments.find(
+        (s) => (s.startSec - 0.5) <= explicitSec && explicitSec <= (s.endSec + 0.5)
       );
-      if (byTime) return byTime;
+      if (exactOverlap) {
+        return {
+          startSec: exactOverlap.startSec,
+          endSec: explicitEndSec || exactOverlap.endSec,
+          label: exactOverlap.timestampLabel || currentCard.timestampLabel,
+          source: 'segment_overlap',
+        };
+      }
+
+      // Nearest segment within 5 seconds of explicitSec
+      let nearestSeg: (typeof testPack.segments)[0] | null = null;
+      let minDiff = 5.0;
+      for (const seg of testPack.segments) {
+        const diff = Math.abs(seg.startSec - explicitSec);
+        if (diff < minDiff) {
+          minDiff = diff;
+          nearestSeg = seg;
+        }
+      }
+      if (nearestSeg) {
+        return {
+          startSec: nearestSeg.startSec,
+          endSec: explicitEndSec || nearestSeg.endSec,
+          label: nearestSeg.timestampLabel || currentCard.timestampLabel,
+          source: 'segment_nearest',
+        };
+      }
     }
 
-    const cleanWord = currentCard.word.toLowerCase();
-    const byText = testPack.segments.find((s) =>
-      s.text.toLowerCase().includes(cleanWord)
-    );
-    if (byText) return byText;
+    // 5. Strategy D: Match segment by target word presence (stem regex)
+    if (testPack.segments && testPack.segments.length > 0 && cleanWord) {
+      const wordStem = cleanWord.length > 4 ? cleanWord.slice(0, cleanWord.length - 2) : cleanWord;
+      const wordRegex = new RegExp(`\\b${wordStem}`, 'i');
+      const wordMatch = testPack.segments.find((s) => wordRegex.test(s.text));
+      if (wordMatch) {
+        return {
+          startSec: wordMatch.startSec,
+          endSec: wordMatch.endSec,
+          label: wordMatch.timestampLabel || currentCard.timestampLabel,
+          source: 'segment_word',
+        };
+      }
+    }
 
-    return testPack.segments[0] || null;
-  }, [currentCard, testPack.segments]);
+    // 6. Strategy E: If explicitSec is known, use explicitSec directly! NEVER fallback to segment 0!
+    if (explicitSec !== null && explicitSec >= 0) {
+      const end = explicitEndSec || (explicitSec + 6.0);
+      return {
+        startSec: explicitSec,
+        endSec: end,
+        label: currentCard.timestampLabel || '[00:00.00]',
+        source: 'explicit_sec',
+      };
+    }
 
-  // Context sentence text for current card
+    // 7. Last resort only if no timestamp and no match found anywhere
+    const firstSeg = testPack.segments?.[0];
+    return {
+      startSec: firstSeg?.startSec ?? 0,
+      endSec: firstSeg?.endSec ?? 5,
+      label: firstSeg?.timestampLabel ?? '[00:00.00]',
+      source: 'fallback',
+    };
+  }, [currentCard, testPack.segments, testPack.classroomDrills]);
+
+  // Context sentence text for current card - GUARANTEED to match the target vocabulary
   const exampleSentence = useMemo(() => {
-    if (currentCard?.exampleInAudio) return currentCard.exampleInAudio;
-    if (currentCard?.contextSentence) return currentCard.contextSentence;
-    if (matchedAudioSegment?.text) return matchedAudioSegment.text;
+    if (currentCard?.exampleInAudio && currentCard.exampleInAudio.trim().length > 0) {
+      return currentCard.exampleInAudio.trim();
+    }
+    if (currentCard?.contextSentence && currentCard.contextSentence.trim().length > 0) {
+      return currentCard.contextSentence.trim();
+    }
+    // If cardAudioTiming matched a segment that contains the word or stem, use its text
+    if (testPack.segments && testPack.segments.length > 0) {
+      const seg = testPack.segments.find(
+        (s) => Math.abs(s.startSec - cardAudioTiming.startSec) < 0.2
+      );
+      if (seg?.text && seg.text.trim().length > 0) {
+        return seg.text.trim();
+      }
+    }
     return `This example contains the target vocabulary: ${currentCard?.word || ''}.`;
-  }, [currentCard, matchedAudioSegment]);
+  }, [currentCard, cardAudioTiming, testPack.segments]);
 
   // Sentence with blank gap for Mode 2
   const gappedSentenceParts = useMemo(() => {
@@ -183,12 +294,7 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
   // Play audio segment for the current word's example sentence
   const handlePlayCardAudio = () => {
     if (!onPlaySegment) return;
-    if (matchedAudioSegment) {
-      onPlaySegment(matchedAudioSegment.startSec, matchedAudioSegment.endSec);
-    } else {
-      const sec = parseTimestampToSec(currentCard?.timestampLabel) ?? 0;
-      onPlaySegment(sec, sec + 6);
-    }
+    onPlaySegment(cardAudioTiming.startSec, cardAudioTiming.endSec);
   };
 
   // Clear 3-2-1 rhythmic timers
@@ -298,6 +404,10 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
 
   // Reset states when changing cards or closing
   useEffect(() => {
+    if (loopTimerRef.current) {
+      window.clearTimeout(loopTimerRef.current);
+      loopTimerRef.current = null;
+    }
     setIsMeaningRevealed(false);
     setIsWordRevealed(false);
     clear321Timers();
@@ -306,6 +416,16 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
     setIsCountdownRunning(false);
     setHasFinishedCountdown(false);
     setSelectedDictWord(null);
+
+    if (isOpen && isLooping && currentCard && onPlaySegment) {
+      if (activeMode === 'choral' && enable321LeadIn) {
+        start321LeadIn(() => {
+          handlePlayCardAudio();
+        });
+      } else {
+        handlePlayCardAudio();
+      }
+    }
   }, [currentSlideIdx, countdownDuration]);
 
   useEffect(() => {
@@ -468,11 +588,9 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
             <span className="text-xs sm:text-sm font-bold text-slate-300 truncate max-w-[200px] sm:max-w-xs">
               {testPack.title}
             </span>
-            {currentCard.timestampLabel && (
-              <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-950/80 px-2.5 py-0.5 rounded-md border border-emerald-700/60 hidden sm:inline-block">
-                {currentCard.timestampLabel}
-              </span>
-            )}
+            <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-950/80 px-2.5 py-0.5 rounded-md border border-emerald-700/60 hidden sm:inline-block">
+              {cardAudioTiming.label || currentCard.timestampLabel}
+            </span>
           </div>
 
           {/* Action buttons */}
@@ -486,7 +604,7 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
                     ? 'bg-emerald-600 hover:bg-emerald-500 text-white ring-2 ring-emerald-400/50'
                     : 'bg-[#15803D] hover:bg-[#166534] text-white'
                 }`}
-                title="Phát câu ví dụ trong bài nghe IELTS"
+                title={`Phát câu ví dụ theo đúng từ vựng này [${cardAudioTiming.label || currentCard.timestampLabel}]`}
               >
                 {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
                 <span className="hidden sm:inline">Phát câu ví dụ</span>
