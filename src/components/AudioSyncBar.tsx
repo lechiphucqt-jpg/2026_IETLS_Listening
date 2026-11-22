@@ -85,6 +85,7 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [peaks, setPeaks] = useState<number[]>([]);
+  const [showSubtitleText, setShowSubtitleText] = useState(true);
 
   // Extract real PCM amplitude peaks if testPack.audioUrl exists; otherwise compute speech-envelope fallback
   useEffect(() => {
@@ -500,10 +501,33 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               title="Nhấp vào sóng âm để tua chính xác đến từng mili giây (vạch vàng là vị trí đáp án)"
               className="w-full h-10 cursor-pointer rounded-lg bg-emerald-50/30 border border-emerald-200 shadow-2xs"
             />
-            {activeSegment && (
-              <div className="text-[11px] text-slate-600 truncate font-medium">
-                <span className="font-bold text-[#15803D]">{activeSegment.speaker}:</span>{' '}
-                {activeSegment.text}
+            {activeSegment && showSubtitleText && (
+              <div className="text-[11px] text-slate-600 truncate font-medium flex items-center justify-between gap-2">
+                <span className="truncate">
+                  <span className="font-bold text-[#15803D]">{activeSegment.speaker}:</span>{' '}
+                  {activeSegment.text}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowSubtitleText(false)}
+                  className="text-[10px] text-slate-400 hover:text-slate-600 shrink-0 cursor-pointer font-bold px-1 rounded hover:bg-slate-100"
+                  title="Ẩn phụ đề chạy chữ dưới sóng âm"
+                >
+                  Ẩn lời
+                </button>
+              </div>
+            )}
+            {activeSegment && !showSubtitleText && (
+              <div className="text-[10px] text-slate-400 italic flex items-center justify-between gap-2">
+                <span>[Phụ đề lời thoại đang ẩn]</span>
+                <button
+                  type="button"
+                  onClick={() => setShowSubtitleText(true)}
+                  className="text-[10px] text-emerald-700 hover:text-emerald-900 shrink-0 cursor-pointer font-bold px-1 rounded hover:bg-emerald-50"
+                  title="Hiện phụ đề chạy chữ dưới sóng âm"
+                >
+                  Hiện lời
+                </button>
               </div>
             )}
           </div>

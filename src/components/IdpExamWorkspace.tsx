@@ -20,11 +20,12 @@ import {
   Plus,
   Send,
   Sparkles,
+  Volume2,
   XCircle,
 } from 'lucide-react';
 import type { AwlVocabItem, IeltsQuestion, ListeningTestPack } from '../types/ielts';
 import { AudioSegmentTimeAdjuster } from './AudioSegmentTimeAdjuster';
-import { getQuestionEndSec } from '../utils/audioTime';
+import { findExactQuoteTimeRange, formatSecondsToTime, getQuestionEndSec } from '../utils/audioTime';
 import { exportExamQuestionPaperDocx } from '../utils/docxExport';
 import { AiListeningCoachModal } from './AiListeningCoachModal';
 
@@ -275,6 +276,24 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
             Xuất đề Word (.docx)
           </button>
 
+          <button
+            type="button"
+            onClick={() => setShowTranscript((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              showTranscript
+                ? 'bg-blue-50 text-blue-900 border-blue-300'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+            title={showTranscript ? 'Ẩn bảng Transcript để tập trung làm bài thi' : 'Hiện bảng Transcript để đối chiếu bài nghe'}
+          >
+            {showTranscript ? (
+              <EyeOff className="w-3.5 h-3.5 text-blue-700" aria-hidden="true" />
+            ) : (
+              <Eye className="w-3.5 h-3.5 text-blue-700" aria-hidden="true" />
+            )}
+            <span>{showTranscript ? 'Ẩn Script' : 'Hiện Script'}</span>
+          </button>
+
           {/* Cỡ chữ toàn trang */}
           {onIncreaseFont && onDecreaseFont && (
             <div
@@ -392,7 +411,7 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
       {/* Two-Zone Sandbox Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Zone: Interactive IDP Question Paper */}
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+        <div className={`${showTranscript ? 'lg:col-span-7' : 'lg:col-span-12 max-w-5xl mx-auto w-full'} bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs transition-all duration-200`}>
           <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/80 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-[#0F2744]">
@@ -404,6 +423,17 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {!showTranscript && (
+                <button
+                  type="button"
+                  onClick={() => setShowTranscript(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg whitespace-nowrap shrink-0 shadow-xs transition-colors cursor-pointer"
+                  title="Mở lại bảng Transcript đồng bộ"
+                >
+                  <Eye className="w-3.5 h-3.5 text-blue-700" aria-hidden="true" />
+                  <span>Hiện Script</span>
+                </button>
+              )}
               {testPack.pdfUrl && (
                 <>
                   <a
@@ -511,21 +541,23 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3">
-                      {q.timestampLabel && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const endSec = getQuestionEndSec(q, testPack);
-                            onSeekAndPlay(q.timestampSec, endSec);
-                          }}
-                          className="inline-flex items-center gap-1 text-xs font-mono font-medium text-[#0F2744] hover:text-blue-800 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
-                          title={`Nghe đoạn audio câu ${q.number}`}
-                        >
-                          <Play className="w-3 h-3" aria-hidden="true" />
-                          Nghe {q.timestampLabel}
-                        </button>
-                      )}
+                      {q.timestampLabel && (() => {
+                        const quoteRange = findExactQuoteTimeRange(q, testPack);
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSeekAndPlay(quoteRange.startSec, quoteRange.endSec);
+                            }}
+                            className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-[#0F2744] hover:text-blue-800 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
+                            title={`Nghe trích đoạn chứa đáp án câu ${q.number} [${formatSecondsToTime(quoteRange.startSec)} - ${formatSecondsToTime(quoteRange.endSec)}]`}
+                          >
+                            <Play className="w-3 h-3 text-blue-700" aria-hidden="true" />
+                            Nghe {q.timestampLabel}
+                          </button>
+                        );
+                      })()}
 
                       <button
                         type="button"
@@ -693,32 +725,53 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
                         </div>
                       )}
 
-                      {/* Trích đoạn audio và chỉnh mốc thời gian bắt đầu / kết thúc ở từng câu trong phần đáp án */}
+                      {/* Trích đoạn audio và định vị chính xác câu trích nghe */}
                       <div className="pt-2 space-y-2 border-t border-slate-200">
-                        {q.transcriptQuote && (
-                          <div className="p-3 bg-white border border-slate-200 rounded-md">
-                            <span className="text-xs text-slate-500 font-medium block mb-1">
-                              Trích đoạn Audio chứa đáp án:
-                            </span>
-                            <strong className="text-xs text-[#0F2744] leading-relaxed block">
-                              “{q.transcriptQuote}”
-                            </strong>
-                          </div>
-                        )}
+                        {q.transcriptQuote && (() => {
+                          const quoteRange = findExactQuoteTimeRange(q, testPack);
+                          const isPlayingThisQuote = currentTime >= quoteRange.startSec && currentTime <= quoteRange.endSec;
+                          return (
+                            <div className={`p-3 rounded-lg border transition-colors ${isPlayingThisQuote ? 'bg-amber-50/90 border-amber-300 ring-2 ring-amber-400/40' : 'bg-white border-slate-200'}`}>
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                                <span className="text-xs text-slate-500 font-bold flex items-center gap-1.5">
+                                  <Volume2 className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
+                                  Trích đoạn Audio chứa đáp án:
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => onSeekAndPlay(quoteRange.startSec, quoteRange.endSec)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-md shadow-xs cursor-pointer transition-colors"
+                                  title={`Phát đoạn câu trích chứa đáp án [${formatSecondsToTime(quoteRange.startSec)} - ${formatSecondsToTime(quoteRange.endSec)}]`}
+                                >
+                                  <Play className="w-3 h-3 fill-current" aria-hidden="true" />
+                                  Phát câu trích [{formatSecondsToTime(quoteRange.startSec)} - {formatSecondsToTime(quoteRange.endSec)}]
+                                </button>
+                              </div>
+                              <strong className="text-xs text-[#0F2744] leading-relaxed block italic bg-slate-50 p-2 rounded border border-slate-100">
+                                “{q.transcriptQuote}”
+                              </strong>
+                            </div>
+                          );
+                        })()}
 
-                        <AudioSegmentTimeAdjuster
-                          label={`Mốc nghe đáp án câu ${q.number}`}
-                          startSec={q.timestampSec}
-                          endSec={getQuestionEndSec(q, testPack)}
-                          currentTime={currentTime}
-                          maxDuration={testPack.durationSec}
-                          onChangeTime={(newStart, newEnd) => {
-                            onUpdateQuestionTime?.(q.number, newStart, newEnd);
-                          }}
-                          onPlaySegment={(start, end) => {
-                            onSeekAndPlay(start, end ?? null);
-                          }}
-                        />
+                        {(() => {
+                          const quoteRange = findExactQuoteTimeRange(q, testPack);
+                          return (
+                            <AudioSegmentTimeAdjuster
+                              label={`Mốc nghe đáp án câu ${q.number}`}
+                              startSec={quoteRange.startSec}
+                              endSec={quoteRange.endSec}
+                              currentTime={currentTime}
+                              maxDuration={testPack.durationSec}
+                              onChangeTime={(newStart, newEnd) => {
+                                onUpdateQuestionTime?.(q.number, newStart, newEnd);
+                              }}
+                              onPlaySegment={(start, end) => {
+                                onSeekAndPlay(start, end ?? null);
+                              }}
+                            />
+                          );
+                        })()}
                       </div>
                     </div>
                   )}
@@ -764,192 +817,189 @@ export const IdpExamWorkspace: React.FC<IdpExamWorkspaceProps> = ({
         </div>
 
         {/* Right Zone: Click-to-Hear Synchronized Transcript & Contextual Translator */}
-        <aside className="lg:col-span-5 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs lg:sticky lg:top-20">
-          <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-bold text-[#0F2744]">
-                Transcript Đồng bộ (Click-to-Hear)
-              </h2>
-              <p className="text-xs font-medium text-slate-500 mt-0.5">
-                Nhấp vào đoạn thoại để nghe · Nhấp từ gạch chân để xem nghĩa theo bài
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowTranscript((prev) => !prev)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
-            >
-              {showTranscript ? (
-                <>
-                  <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />
-                  Ẩn Script
-                </>
-              ) : (
-                <>
-                  <Eye className="w-3.5 h-3.5" aria-hidden="true" />
-                  Hiện Script
-                </>
-              )}
-            </button>
-          </div>
-
-          {!showTranscript ? (
-            <div className="p-8 text-center">
-              <BookOpen className="w-8 h-8 text-slate-400 mx-auto mb-3" aria-hidden="true" />
-              <p className="text-sm font-semibold text-slate-800">
-                Chế độ thi thật đang ẩn Transcript
-              </p>
-              <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto leading-relaxed">
-                Tập trung nghe audio và điền đáp án ở bên trái. Bạn có thể bật lại Transcript để đối chiếu Click-to-Hear bất kỳ lúc nào.
-              </p>
-            </div>
-          ) : (
-            <>
-              {/* Quick Contextual Translator per listening passage */}
-              <form
-                onSubmit={handleQuickTranslate}
-                className="px-4 py-3 border-b border-slate-200 bg-slate-50/40 space-y-2"
+        {showTranscript && (
+          <aside className="lg:col-span-5 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs lg:sticky lg:top-20">
+            <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-[#0F2744]">
+                  Transcript Đồng bộ (Click-to-Hear)
+                </h2>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">
+                  Nhấp vào đoạn thoại để nghe · Nhấp từ gạch chân để xem nghĩa theo bài
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTranscript(false)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+                title="Ẩn bảng Transcript để tập trung làm bài thi"
               >
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={lookupWord}
-                    onChange={(e) => setLookupWord(e.target.value)}
-                    placeholder="Gõ từ/cụm từ trong bài để dịch theo ngữ cảnh..."
-                    className="flex-1 min-w-0 text-xs bg-white border border-slate-300 focus:border-blue-700 focus:ring-2 focus:ring-blue-700/20 rounded-md px-3 py-1.5 outline-none"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isTranslating || !lookupWord.trim()}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#0F2744] hover:bg-[#0A1B30] rounded-md whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 transition-colors"
-                  >
-                    {isTranslating ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-                    ) : (
-                      <Languages className="w-3.5 h-3.5" aria-hidden="true" />
-                    )}
-                    Dịch theo bài
-                  </button>
-                </div>
-                {translateError && (
-                  <p className="text-xs text-red-700">{translateError}</p>
-                )}
-              </form>
+                <EyeOff className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
+                <span>Ẩn Script</span>
+              </button>
+            </div>
 
-              {/* AWL Lexicon Popover Card */}
-              {selectedVocab && (
-                <div className="m-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-base font-bold text-slate-900">
-                          {selectedVocab.word}
-                        </span>
-                        <span className="text-xs font-mono text-slate-600">
-                          {selectedVocab.ipa}
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          ({selectedVocab.pos})
-                        </span>
-                      </div>
-                      <p className="text-sm font-semibold text-blue-900 mt-1.5">
-                        Nghĩa theo ngữ cảnh bài: {selectedVocab.contextualMeaningVi || selectedVocab.definitionVi}
-                      </p>
-                      {selectedVocab.contextualMeaningVi &&
-                        selectedVocab.definitionVi !== selectedVocab.contextualMeaningVi && (
-                          <p className="text-xs text-slate-600 mt-0.5">
-                            Nghĩa phổ thông: {selectedVocab.definitionVi}
-                          </p>
-                        )}
-                      {selectedVocab.exampleTranslationVi && (
-                        <p className="text-xs text-slate-600 mt-1.5 italic">
-                          “{selectedVocab.exampleTranslationVi}”
+            {/* Quick Contextual Translator per listening passage */}
+            <form
+              onSubmit={handleQuickTranslate}
+              className="px-4 py-3 border-b border-slate-200 bg-slate-50/40 space-y-2"
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={lookupWord}
+                  onChange={(e) => setLookupWord(e.target.value)}
+                  placeholder="Gõ từ/cụm từ trong bài để dịch theo ngữ cảnh..."
+                  className="flex-1 min-w-0 text-xs bg-white border border-slate-300 focus:border-blue-700 focus:ring-2 focus:ring-blue-700/20 rounded-md px-3 py-1.5 outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={isTranslating || !lookupWord.trim()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#0F2744] hover:bg-[#0A1B30] rounded-md whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 transition-colors"
+                >
+                  {isTranslating ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Languages className="w-3.5 h-3.5" aria-hidden="true" />
+                  )}
+                  Dịch theo bài
+                </button>
+              </div>
+              {translateError && (
+                <p className="text-xs text-red-700">{translateError}</p>
+              )}
+            </form>
+
+            {/* AWL Lexicon Popover Card */}
+            {selectedVocab && (
+              <div className="m-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-base font-bold text-slate-900">
+                        {selectedVocab.word}
+                      </span>
+                      <span className="text-xs font-mono text-slate-600">
+                        {selectedVocab.ipa}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        ({selectedVocab.pos})
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold text-blue-900 mt-1.5">
+                      Nghĩa theo ngữ cảnh bài: {selectedVocab.contextualMeaningVi || selectedVocab.definitionVi}
+                    </p>
+                    {selectedVocab.contextualMeaningVi &&
+                      selectedVocab.definitionVi !== selectedVocab.contextualMeaningVi && (
+                        <p className="text-xs text-slate-600 mt-0.5">
+                          Nghĩa phổ thông: {selectedVocab.definitionVi}
                         </p>
                       )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedVocab(null)}
-                      className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer"
-                    >
-                      Đóng
-                    </button>
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-slate-200 flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onSeekAndPlay(selectedVocab.timestampSec)}
-                      className="text-xs font-mono text-blue-700 hover:underline cursor-pointer"
-                    >
-                      Nghe ngữ cảnh {selectedVocab.timestampLabel}
-                    </button>
-                    {savedWords.has(selectedVocab.word.toLowerCase()) ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
-                        <Check className="w-3.5 h-3.5" aria-hidden="true" />
-                        Đã lưu Flashcard
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => onSaveFlashcard(selectedVocab)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-[#0F2744] hover:bg-[#0A1B30] rounded-md cursor-pointer transition-colors"
-                      >
-                        <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-                        Lưu Flashcard
-                      </button>
+                    {selectedVocab.exampleTranslationVi && (
+                      <p className="text-xs text-slate-600 mt-1.5 italic">
+                        “{selectedVocab.exampleTranslationVi}”
+                      </p>
                     )}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVocab(null)}
+                    className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    Đóng
+                  </button>
                 </div>
-              )}
-
-              <div className="max-h-[540px] overflow-y-auto divide-y divide-slate-100">
-                {testPack.segments.map((seg) => {
-                  const isActive =
-                    currentTime >= seg.startSec && currentTime < seg.endSec;
-
-                  return (
-                    <div
-                      key={seg.id}
-                      onClick={() => onSeekAndPlay(seg.startSec, seg.endSec)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          onSeekAndPlay(seg.startSec, seg.endSec);
-                        }
-                      }}
-                      className={`p-4 transition-colors cursor-pointer ${
-                        isActive ? 'bg-blue-50/60 border-l-4 border-[#0F2744]' : 'hover:bg-slate-50 border-l-4 border-transparent'
-                      }`}
+                <div className="mt-3 pt-3 border-t border-slate-200 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSeekAndPlay(selectedVocab.timestampSec)}
+                    className="text-xs font-mono text-blue-700 hover:underline cursor-pointer"
+                  >
+                    Nghe ngữ cảnh {selectedVocab.timestampLabel}
+                  </button>
+                  {savedWords.has(selectedVocab.word.toLowerCase()) ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                      <Check className="w-3.5 h-3.5" aria-hidden="true" />
+                      Đã lưu Flashcard
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onSaveFlashcard(selectedVocab)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-[#0F2744] hover:bg-[#0A1B30] rounded-md cursor-pointer transition-colors"
                     >
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="text-xs font-semibold text-slate-900">
-                          {seg.speaker}
-                          {seg.questionRef ? (
-                            <span className="ml-2 font-normal text-slate-500">
-                              · Liên quan Câu {seg.questionRef}
-                            </span>
-                          ) : null}
-                        </span>
-                        <span
-                          className={`text-xs font-mono tabular-nums ${
-                            isActive ? 'text-[#0F2744] font-bold' : 'text-slate-500'
-                          }`}
-                        >
-                          {seg.timestampLabel}
-                        </span>
-                      </div>
-                      <p className="text-sm text-slate-700 leading-relaxed">
-                        {renderInteractiveText(seg.text, seg.startSec)}
-                      </p>
-                    </div>
-                  );
-                })}
+                      <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                      Lưu Flashcard
+                    </button>
+                  )}
+                </div>
               </div>
-            </>
-          )}
-        </aside>
+            )}
+
+            <div className="max-h-[540px] overflow-y-auto divide-y divide-slate-100">
+              {testPack.segments.map((seg) => {
+                const isActive =
+                  currentTime >= seg.startSec && currentTime < seg.endSec;
+                const activeQ = testPack.questions.find((q) => q.number === activeQuestionNum);
+                const activeQuoteRange = activeQ ? findExactQuoteTimeRange(activeQ, testPack) : null;
+                const isMatchingActiveQuote = Boolean(
+                  activeQuoteRange && (
+                    activeQuoteRange.matchedSegmentId === seg.id ||
+                    (seg.startSec < activeQuoteRange.endSec && seg.endSec > activeQuoteRange.startSec)
+                  )
+                );
+
+                return (
+                  <div
+                    key={seg.id}
+                    onClick={() => onSeekAndPlay(seg.startSec, seg.endSec)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSeekAndPlay(seg.startSec, seg.endSec);
+                      }
+                    }}
+                    className={`p-4 transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-blue-50/70 border-l-4 border-[#0F2744]'
+                        : isMatchingActiveQuote
+                          ? 'bg-amber-50/50 border-l-4 border-amber-500'
+                          : 'hover:bg-slate-50 border-l-4 border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-xs font-semibold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                        <span>{seg.speaker}</span>
+                        {seg.questionRef ? (
+                          <span className="font-normal text-slate-500">
+                            · Liên quan Câu {seg.questionRef}
+                          </span>
+                        ) : null}
+                        {isMatchingActiveQuote && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-amber-100 text-amber-900 border border-amber-300">
+                            ★ Chứa đáp án Câu {activeQuestionNum}
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        className={`text-xs font-mono tabular-nums ${
+                          isActive ? 'text-[#0F2744] font-bold' : 'text-slate-500'
+                        }`}
+                      >
+                        {seg.timestampLabel}
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-700 leading-relaxed">
+                      {renderInteractiveText(seg.text, seg.startSec)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+        )}
       </div>
       {/* Gia sư AI 1-on-1 Modal */}
       <AiListeningCoachModal

@@ -10,6 +10,7 @@ import {
   MonitorPlay,
   Play,
   Plus,
+  Printer,
   RotateCw,
   Trash2,
   Volume2,
@@ -17,6 +18,7 @@ import {
 import type { AwlVocabItem, FlashcardItem, ListeningTestPack } from '../types/ielts';
 import { blobToBase64, getMediaBlob, saveMediaBlob } from '../utils/indexedDBStorage';
 import { extractDedicatedPdfVocabulary } from '../utils/clientGemini';
+import { exportVocabularyDocx, exportVocabularyPdf } from '../utils/docxExport';
 import { exportVocabularySlidesPptx } from '../utils/pptxExport';
 import { VocabularySlideModal } from './VocabularySlideModal';
 
@@ -608,6 +610,24 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
                   <MonitorPlay className="w-3.5 h-3.5 text-emerald-200" />
                   <span>Trình chiếu Slide (16:9)</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => exportVocabularyDocx(testPack, customLogo)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-full text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                  title="Xuất từ vựng sang file Word (.docx)"
+                >
+                  <FileDown className="w-3 h-3 text-blue-600" />
+                  <span className="hidden md:inline">Word</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportVocabularyPdf(testPack, customLogo)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-full text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                  title="Xuất từ vựng sang file PDF / In"
+                >
+                  <Printer className="w-3 h-3 text-red-600" />
+                  <span className="hidden md:inline">PDF</span>
+                </button>
                 <span className="font-mono tabular-nums bg-emerald-50 text-emerald-900 border border-emerald-200 px-3 py-1 rounded-full text-xs font-extrabold shadow-2xs">
                   Thẻ {safeIndex + 1} / {filteredCards.length}
                 </span>
@@ -902,9 +922,29 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
               Tự động hiển thị theo bài đang chọn kèm nghĩa tiếng Việt sát ngữ cảnh và bản dịch câu mẫu trong Audio
             </p>
           </div>
-          <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 font-extrabold text-xs border border-emerald-300">
-            {testPack.vocabulary.length} từ vựng
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => exportVocabularyDocx(testPack, customLogo)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 rounded-lg whitespace-nowrap shrink-0 shadow-2xs transition-colors cursor-pointer"
+              title="Xuất bảng từ vựng thành file Word (.docx) để in ấn hoặc chỉnh sửa"
+            >
+              <FileDown className="w-3.5 h-3.5 text-blue-600" />
+              <span>Xuất Word (.docx)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => exportVocabularyPdf(testPack, customLogo)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 rounded-lg whitespace-nowrap shrink-0 shadow-2xs transition-colors cursor-pointer"
+              title="Xuất bảng từ vựng ra file PDF hoặc In ngay"
+            >
+              <Printer className="w-3.5 h-3.5 text-red-600" />
+              <span>Xuất PDF</span>
+            </button>
+            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 font-extrabold text-xs border border-emerald-300">
+              {testPack.vocabulary.length} từ vựng
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">

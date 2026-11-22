@@ -123,3 +123,128 @@ export function getQuestionEndSec(
 
   return Number((q.timestampSec + 8).toFixed(2));
 }
+
+/**
+ * Pinpoints the exact audio start and end timestamps (seconds) for a question's quote
+ * by intelligently scanning and cross-matching transcriptQuote, correctAnswer, and segments.
+ */
+export function findExactQuoteTimeRange(
+  q: IeltsQuestion,
+  testPack: ListeningTestPack
+): { startSec: number; endSec: number; matchedSegmentId?: string } {
+  let start = q.timestampSec;
+  let end = getQuestionEndSec(q, testPack);
+  let matchedSegmentId: string | undefined;
+
+  const segments = testPack?.segments;
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return { startSec: start, endSec: end };
+  }
+
+  const quote = (q.transcriptQuote || '').trim().toLowerCase();
+  const answer = (q.correctAnswer || '').trim().toLowerCase();
+
+  // 1. If explicit question reference exists on a segment
+  if (typeof q.number === 'number') {
+    const directRef = segments.find((s) => s.questionRef === q.number);
+    if (directRef) {
+      start = directRef.startSec;
+      end = directRef.endSec;
+      matchedSegmentId = directRef.id;
+    }
+  }
+
+  // 2. Exact or substring match on transcriptQuote
+  if (quote.length >= 8) {
+    const cleanQuote = quote.replace(/^[“"']+|[”"'.?!,;:]+$/g, '').trim();
+    const exactMatch = segments.find((s) => {
+      const cleanSeg = s.text.toLowerCase();
+      return cleanSeg.includes(cleanQuote) || (cleanQuote.length >= 20 && cleanQuote.includes(cleanSeg));
+    });
+
+    if (exactMatch) {
+      start = exactMatch.startSec;
+      end = exactMatch.endSec;
+      matchedSegmentId = exactMatch.id;
+      return {
+        startSec: Number(start.toFixed(2)),
+        endSec: Number(end.toFixed(2)),
+        matchedSegmentId,
+      };
+    }
+  }
+
+  // 3. Keyword / semantic token scoring
+  if (quote.length >= 6) {
+    const stopWords = new Set([
+      'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were',
+      'in', 'on', 'at', 'to', 'for', 'of', 'with', 'from', 'by', 'that',
+      'this', 'it', 'as', 'be', 'have', 'has', 'had', 'you', 'i', 'we'
+    ]);
+    const quoteWords = quote
+      .toLowerCase()
+      .replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !stopWords.has(w));
+
+    let bestScore = 0;
+    let bestSegIdx = -1;
+
+    segments.forEach((seg, idx) => {
+      const segText = seg.text.toLowerCase();
+      let matchCount = 0;
+      for (const qw of quoteWords) {
+        if (segText.includes(qw)) {
+          matchCount++;
+        }
+      }
+
+      let score = quoteWords.length > 0 ? (matchCount / quoteWords.length) * 100 : 0;
+
+      // Heavy bonus if the actual correct answer is in this segment
+      if (answer.length >= 3 && segText.includes(answer)) {
+        score += 35;
+      }
+
+      // Proximity bonus to recorded timestamp
+      const diffSec = Math.abs(seg.startSec - q.timestampSec);
+      if (diffSec < 8) score += 20;
+      else if (diffSec < 20) score += 10;
+
+      if (score > bestScore && score >= 35) {
+        bestScore = score;
+        bestSegIdx = idx;
+      }
+    });
+
+    if (bestSegIdx >= 0) {
+      const seg = segments[bestSegIdx];
+      start = seg.startSec;
+      end = seg.endSec;
+      matchedSegmentId = seg.id;
+
+      // Check if quote might span into the next segment
+      if (bestSegIdx + 1 < segments.length) {
+        const nextSeg = segments[bestSegIdx + 1];
+        let nextMatch = 0;
+        for (const qw of quoteWords) {
+          if (nextSeg.text.toLowerCase().includes(qw)) nextMatch++;
+        }
+        if (nextMatch >= 2) {
+          end = nextSeg.endSec;
+        }
+      }
+    }
+  }
+
+  // Ensure end is strictly after start
+  if (end <= start) {
+    end = Number((start + 6).toFixed(2));
+  }
+
+  return {
+    startSec: Number(start.toFixed(2)),
+    endSec: Number(end.toFixed(2)),
+    matchedSegmentId,
+  };
+}

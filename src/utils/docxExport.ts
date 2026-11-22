@@ -400,3 +400,337 @@ export function exportTeacherAnswerKeyDocx(testPack: ListeningTestPack) {
     'application/msword'
   );
 }
+
+/**
+ * Export Vocabulary List as formatted Word (.doc / .docx)
+ */
+export function exportVocabularyDocx(testPack: ListeningTestPack, customLogo?: string | null) {
+  const safeTitle = testPack.title.replace(/[/\\?%*:|"<>]/g, '-');
+  const dateStr = new Date().toLocaleDateString('vi-VN');
+  const vocab = testPack.vocabulary || [];
+
+  const vocabRows = vocab
+    .map(
+      (v, idx) => `
+    <tr>
+      <td style="text-align: center; font-weight: bold; width: 30pt;">${idx + 1}</td>
+      <td style="font-weight: bold; color: #15803D; font-size: 11pt;">${v.word}</td>
+      <td style="font-family: Consolas, 'Courier New', monospace; font-size: 10pt; color: #047857;">${v.ipa || '—'}</td>
+      <td style="text-align: center; font-style: italic; color: #64748B;">${v.pos || 'word'}</td>
+      <td style="font-weight: bold; color: #0F172A;">
+        ${v.contextualMeaningVi || v.definitionVi || '—'}
+        ${v.contextualMeaningVi && v.definitionVi !== v.contextualMeaningVi ? `<div style="font-size: 9pt; color: #64748B; font-weight: normal; margin-top: 2pt;">Nghĩa chung: ${v.definitionVi}</div>` : ''}
+      </td>
+      <td style="font-size: 10pt; color: #334155;">${v.definitionEn || '—'}</td>
+      <td style="font-size: 10pt; color: #1E293B;">
+        ${v.exampleInAudio ? `<em>“${v.exampleInAudio}”</em> ${v.timestampLabel ? `<span style="font-size: 8.5pt; color: #64748B;">${v.timestampLabel}</span>` : ''}` : '—'}
+        ${v.exampleTranslationVi ? `<div style="font-size: 9pt; color: #047857; margin-top: 2pt;">Dịch: ${v.exampleTranslationVi}</div>` : ''}
+      </td>
+    </tr>
+  `
+    )
+    .join('');
+
+  const body = `
+    <div style="text-align: center; margin-bottom: 12pt;">
+      ${customLogo ? `<img src="${customLogo}" style="max-height: 48pt; margin-bottom: 6pt;" alt="Logo" /><br>` : ''}
+      <h1 style="color: #15803D; margin-bottom: 3pt;">SỔ TAY TỪ VỰNG HỌC THUẬT (IELTS VOCABULARY BANK)</h1>
+      <div class="subtitle" style="margin-bottom: 12pt;">
+        <strong>${testPack.title}</strong> — ${testPack.partLabel} | Chủ đề: ${testPack.topic} | Mục tiêu: ${testPack.bandTarget}<br>
+        Tổng cộng: <strong>${vocab.length}</strong> từ vựng trọng tâm · Ngày xuất: ${dateStr}
+      </div>
+    </div>
+
+    <div class="instruction-box" style="border-left-color: #15803D; background-color: #F0FDF4; margin-bottom: 14pt;">
+      <strong>GHI CHÚ HỌC TẬP TỪ VỰNG IELTS:</strong><br>
+      • Học từ vựng gắn liền với ngữ cảnh câu nói trong bài nghe Audio để nhớ lâu và phát âm chuẩn.<br>
+      • Ôn luyện phiên âm IPA để cải thiện kỹ năng nghe bắt âm và tránh các bẫy phát âm (Connected Speech / Linking Sounds).
+    </div>
+
+    <table style="width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr style="background-color: #15803D; color: #FFFFFF;">
+          <th style="width: 30pt; text-align: center; padding: 6pt;">STT</th>
+          <th style="width: 90pt; padding: 6pt;">Từ vựng (Word)</th>
+          <th style="width: 80pt; padding: 6pt;">Phiên âm (IPA)</th>
+          <th style="width: 45pt; text-align: center; padding: 6pt;">Từ loại</th>
+          <th style="width: 130pt; padding: 6pt;">Nghĩa tiếng Việt theo ngữ cảnh</th>
+          <th style="width: 120pt; padding: 6pt;">Định nghĩa tiếng Anh</th>
+          <th style="padding: 6pt;">Câu ví dụ trong Audio & Bản dịch</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${vocabRows}
+      </tbody>
+    </table>
+  `;
+
+  const fullDoc = wrapWordHtml(`Tu_Vung_IELTS_${safeTitle}`, body);
+  downloadFile(
+    fullDoc,
+    `Tu_Vung_IELTS_${safeTitle}_${testPack.partLabel.replace(/\s+/g, '_')}.doc`,
+    'application/msword'
+  );
+}
+
+/**
+ * Export Vocabulary List to print-optimized PDF (opens native browser Print / Save as PDF)
+ */
+export function exportVocabularyPdf(testPack: ListeningTestPack, customLogo?: string | null) {
+  const dateStr = new Date().toLocaleDateString('vi-VN');
+  const vocab = testPack.vocabulary || [];
+
+  const vocabRows = vocab
+    .map(
+      (v, idx) => `
+    <tr>
+      <td class="col-num">${idx + 1}</td>
+      <td class="col-word">
+        <span class="word-text">${v.word}</span>
+        <span class="pos-badge">${v.pos || 'word'}</span>
+      </td>
+      <td class="col-ipa">${v.ipa || '—'}</td>
+      <td class="col-meaning">
+        <div class="meaning-context">${v.contextualMeaningVi || v.definitionVi || '—'}</div>
+        ${v.contextualMeaningVi && v.definitionVi !== v.contextualMeaningVi ? `<div class="meaning-gen">Nghĩa chung: ${v.definitionVi}</div>` : ''}
+        ${v.definitionEn ? `<div class="def-en">${v.definitionEn}</div>` : ''}
+      </td>
+      <td class="col-example">
+        ${v.exampleInAudio ? `<div class="ex-en">“${v.exampleInAudio}” ${v.timestampLabel ? `<span class="ex-ts">${v.timestampLabel}</span>` : ''}</div>` : '—'}
+        ${v.exampleTranslationVi ? `<div class="ex-vi">Dịch: ${v.exampleTranslationVi}</div>` : ''}
+      </td>
+    </tr>
+  `
+    )
+    .join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>Từ vựng IELTS - ${testPack.title}</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 12mm 10mm 12mm 10mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 10pt;
+      line-height: 1.4;
+      color: #0f172a;
+      background: #ffffff;
+      margin: 0;
+      padding: 0;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 2pt solid #15803d;
+      padding-bottom: 8pt;
+      margin-bottom: 12pt;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12pt;
+    }
+    .logo-img {
+      max-height: 38pt;
+      max-width: 90pt;
+      object-fit: contain;
+    }
+    .title-h1 {
+      font-size: 15pt;
+      font-weight: 800;
+      color: #15803d;
+      margin: 0 0 2pt 0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .subtitle {
+      font-size: 8.5pt;
+      color: #475569;
+      margin: 0;
+    }
+    .header-meta {
+      text-align: right;
+      font-size: 8.5pt;
+      color: #64748b;
+    }
+    .meta-badge {
+      display: inline-block;
+      background: #f0fdf4;
+      color: #166534;
+      font-weight: 700;
+      padding: 2pt 6pt;
+      border-radius: 4pt;
+      border: 1pt solid #bbf7d0;
+      margin-bottom: 2pt;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      page-break-inside: auto;
+    }
+    tr {
+      page-break-inside: avoid;
+      page-break-after: auto;
+    }
+    thead {
+      display: table-header-group;
+    }
+    th {
+      background-color: #15803d;
+      color: #ffffff;
+      font-size: 9pt;
+      font-weight: 700;
+      text-align: left;
+      padding: 6pt 8pt;
+      border: 0.5pt solid #15803d;
+    }
+    td {
+      padding: 6pt 8pt;
+      border: 0.5pt solid #cbd5e1;
+      vertical-align: top;
+      font-size: 9pt;
+    }
+    tbody tr:nth-child(even) {
+      background-color: #f8fafc;
+    }
+    .col-num {
+      width: 28pt;
+      text-align: center;
+      font-weight: 700;
+      color: #64748b;
+    }
+    .col-word {
+      width: 110pt;
+    }
+    .word-text {
+      display: block;
+      font-weight: 800;
+      color: #0f172a;
+      font-size: 10pt;
+    }
+    .pos-badge {
+      display: inline-block;
+      font-size: 7.5pt;
+      font-weight: 600;
+      color: #166534;
+      background: #dcfce7;
+      padding: 1pt 4pt;
+      border-radius: 3pt;
+      margin-top: 2pt;
+    }
+    .col-ipa {
+      width: 90pt;
+      font-family: Consolas, monospace;
+      font-size: 8.5pt;
+      font-weight: 600;
+      color: #047857;
+      white-space: nowrap;
+    }
+    .col-meaning {
+      width: 180pt;
+    }
+    .meaning-context {
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .meaning-gen {
+      font-size: 8pt;
+      color: #64748b;
+      margin-top: 2pt;
+    }
+    .def-en {
+      font-size: 8pt;
+      color: #475569;
+      font-style: italic;
+      margin-top: 2pt;
+    }
+    .col-example {
+    }
+    .ex-en {
+      color: #1e293b;
+      font-weight: 500;
+    }
+    .ex-ts {
+      font-size: 7.5pt;
+      color: #64748b;
+      font-family: monospace;
+    }
+    .ex-vi {
+      font-size: 8pt;
+      color: #047857;
+      margin-top: 2pt;
+    }
+    .footer {
+      margin-top: 12pt;
+      text-align: center;
+      font-size: 8pt;
+      color: #94a3b8;
+    }
+    @media print {
+      body {
+        margin: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-left">
+      ${customLogo ? `<img src="${customLogo}" class="logo-img" alt="Logo" />` : ''}
+      <div>
+        <h1 class="title-h1">BẢNG TỪ VỰNG HỌC THUẬT (IELTS VOCABULARY BANK)</h1>
+        <p class="subtitle"><strong>${testPack.title}</strong> — ${testPack.partLabel} | Chủ đề: ${testPack.topic} | Mục tiêu: ${testPack.bandTarget}</p>
+      </div>
+    </div>
+    <div class="header-meta">
+      <div class="meta-badge">${vocab.length} TỪ VỰNG</div>
+      <div>Ngày xuất: ${dateStr}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 28pt; text-align: center;">STT</th>
+        <th style="width: 110pt;">Từ vựng (Word)</th>
+        <th style="width: 90pt;">Phiên âm (IPA)</th>
+        <th style="width: 180pt;">Nghĩa tiếng Việt theo ngữ cảnh</th>
+        <th>Câu ví dụ Audio & Bản dịch</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${vocabRows}
+    </tbody>
+  </table>
+
+  <div class="footer">
+    Hệ thống luyện thi IELTS Listening Chuyên sâu • Tiếng Anh Thầy Phúc
+  </div>
+
+  <script>
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        window.print();
+      }, 400);
+    });
+  </script>
+</body>
+</html>`;
+
+  const printWindow = window.open('', '_blank');
+  if (printWindow) {
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }
+}
