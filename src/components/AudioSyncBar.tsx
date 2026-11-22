@@ -4,6 +4,8 @@ import {
   AudioWaveform,
   Cloud,
   Download,
+  Eye,
+  EyeOff,
   FileText,
   HardDrive,
   Pause,
@@ -85,7 +87,24 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [peaks, setPeaks] = useState<number[]>([]);
-  const [showSubtitleText, setShowSubtitleText] = useState(true);
+  const [showScript, setShowScript] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('lexisync_audio_show_script');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleShowScript = () => {
+    setShowScript((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('lexisync_audio_show_script', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // Extract real PCM amplitude peaks if testPack.audioUrl exists; otherwise compute speech-envelope fallback
   useEffect(() => {
@@ -440,6 +459,30 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               </button>
             )}
 
+            {/* Nút Ẩn / Hiện Script lời thoại chạy dưới sóng âm */}
+            <button
+              type="button"
+              onClick={toggleShowScript}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs ${
+                showScript
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+              title={showScript ? 'Bấm để ẩn dòng script lời thoại chạy dưới sóng âm' : 'Bấm để hiện dòng script lời thoại chạy dưới sóng âm'}
+            >
+              {showScript ? (
+                <>
+                  <EyeOff className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
+                  <span>Ẩn Script</span>
+                </>
+              ) : (
+                <>
+                  <Eye className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
+                  <span>Hiện Script</span>
+                </>
+              )}
+            </button>
+
             {testPack.isCustomUpload && onDeleteTest && (
               <button
                 type="button"
@@ -501,35 +544,50 @@ export const AudioSyncBar: React.FC<AudioSyncBarProps> = ({
               title="Nhấp vào sóng âm để tua chính xác đến từng mili giây (vạch vàng là vị trí đáp án)"
               className="w-full h-10 cursor-pointer rounded-lg bg-emerald-50/30 border border-emerald-200 shadow-2xs"
             />
-            {activeSegment && showSubtitleText && (
-              <div className="text-[11px] text-slate-600 truncate font-medium flex items-center justify-between gap-2">
-                <span className="truncate">
-                  <span className="font-bold text-[#15803D]">{activeSegment.speaker}:</span>{' '}
-                  {activeSegment.text}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowSubtitleText(false)}
-                  className="text-[10px] text-slate-400 hover:text-slate-600 shrink-0 cursor-pointer font-bold px-1 rounded hover:bg-slate-100"
-                  title="Ẩn phụ đề chạy chữ dưới sóng âm"
-                >
-                  Ẩn lời
-                </button>
-              </div>
-            )}
-            {activeSegment && !showSubtitleText && (
-              <div className="text-[10px] text-slate-400 italic flex items-center justify-between gap-2">
-                <span>[Phụ đề lời thoại đang ẩn]</span>
-                <button
-                  type="button"
-                  onClick={() => setShowSubtitleText(true)}
-                  className="text-[10px] text-emerald-700 hover:text-emerald-900 shrink-0 cursor-pointer font-bold px-1 rounded hover:bg-emerald-50"
-                  title="Hiện phụ đề chạy chữ dưới sóng âm"
-                >
-                  Hiện lời
-                </button>
-              </div>
-            )}
+            {/* Dòng hiển thị Script lời thoại chạy dưới sóng âm kèm nút Ẩn/Hiện Script */}
+            <div className="min-h-[22px] flex items-center justify-between gap-2 px-1">
+              {showScript ? (
+                <>
+                  <span className="text-[11px] text-slate-700 truncate font-medium">
+                    {activeSegment ? (
+                      <>
+                        <span className="font-bold text-[#15803D]">{activeSegment.speaker}:</span>{' '}
+                        <span>{activeSegment.text}</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400 italic">Đang đồng bộ âm thanh theo từng câu...</span>
+                    )}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={toggleShowScript}
+                    className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900 shrink-0 cursor-pointer font-bold px-2 py-0.5 rounded border border-slate-300 bg-white hover:bg-slate-100 transition-colors shadow-2xs"
+                    title="Ẩn script lời thoại dưới sóng âm để luyện nghe phản xạ"
+                  >
+                    <EyeOff className="w-3 h-3 text-slate-500" aria-hidden="true" />
+                    <span>Ẩn Script</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="text-[11px] text-slate-400 italic flex items-center gap-1.5">
+                    <EyeOff className="w-3 h-3 text-slate-400" aria-hidden="true" />
+                    <span>Script lời thoại đang ẩn (chế độ nghe không nhìn chữ)</span>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={toggleShowScript}
+                    className="inline-flex items-center gap-1 text-[11px] text-emerald-800 hover:text-emerald-950 shrink-0 cursor-pointer font-bold px-2 py-0.5 rounded border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 transition-colors shadow-2xs"
+                    title="Hiện lại script lời thoại dưới sóng âm"
+                  >
+                    <Eye className="w-3 h-3 text-emerald-700" aria-hidden="true" />
+                    <span>Hiện Script</span>
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Speed control segmented tabs */}
