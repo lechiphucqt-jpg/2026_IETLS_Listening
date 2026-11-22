@@ -89,7 +89,9 @@ function tokenizeSentence(
   keyWords: string[] = [],
   vocabList: { word: string }[] = []
 ): WordToken[] {
-  const rawTokens = sentence.trim().split(/\s+/).filter(Boolean);
+  // Strip outer quotes to prevent duplicate quotes in presentation
+  const trimmedSentence = sentence.trim().replace(/^[“"']+|[”"']+$/g, '');
+  const rawTokens = trimmedSentence.split(/\s+/).filter(Boolean);
 
   const targetWordsSet = new Set<string>();
   keyWords.forEach((kw) => {
@@ -1050,22 +1052,24 @@ export const ClassroomSlideModal: React.FC<ClassroomSlideModalProps> = ({
             {activeMode === 'full_reveal' && (
               <div className="w-full max-w-4xl mx-auto py-2">
                 <div className="bg-[#101426]/90 border-l-8 border-purple-500 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-md">
-                  <p className="text-xl sm:text-2xl md:text-3xl font-extrabold leading-snug tracking-tight text-white mb-3">
+                  <p className="text-xl sm:text-2xl md:text-3xl font-extrabold leading-relaxed tracking-normal text-white mb-3">
                     “
-                    {tokens.map((token) => (
-                      <button
-                        key={token.id}
-                        type="button"
-                        onClick={() => handleLookupWord(token.wordOnly)}
-                        title={`Bấm để tra IPA & nghĩa: ${token.wordOnly}`}
-                        className={
-                          token.isKeyword
-                            ? 'inline-block bg-purple-900/70 text-purple-200 border border-purple-400/50 px-2 py-0.5 mx-1 rounded-lg font-bold shadow-xs hover:bg-purple-800 hover:text-white cursor-pointer transition-all'
-                            : 'inline hover:text-purple-300 hover:underline cursor-pointer transition-colors'
-                        }
-                      >
-                        {token.raw}{' '}
-                      </button>
+                    {tokens.map((token, idx) => (
+                      <React.Fragment key={token.id}>
+                        <button
+                          type="button"
+                          onClick={() => handleLookupWord(token.wordOnly)}
+                          title={`Bấm để tra IPA & nghĩa: ${token.wordOnly}`}
+                          className={
+                            token.isKeyword
+                              ? 'inline-block bg-purple-900/80 text-purple-200 border border-purple-400/50 px-2.5 py-0.5 mx-0.5 rounded-lg font-bold shadow-xs hover:bg-purple-800 hover:text-white cursor-pointer transition-all align-baseline'
+                              : 'inline-block hover:text-purple-300 hover:underline cursor-pointer transition-colors align-baseline'
+                          }
+                        >
+                          {token.raw}
+                        </button>
+                        {idx < tokens.length - 1 && <span className="inline">{' '}</span>}
+                      </React.Fragment>
                     ))}
                     ”
                   </p>
