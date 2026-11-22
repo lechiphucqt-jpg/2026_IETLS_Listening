@@ -591,7 +591,10 @@ QUY TẮC BẮT BUỘC ĐỂ NHẬN DIỆN CHÍNH XÁC CÂU HỎI ĐỀ THI (KH�
 
 ${transcribedSegments.length === 0 ? '6. "segments": Tách lời thoại/script thành 20-35 câu ngắn liên tiếp theo thứ tự thời gian, mỗi câu có startSec, endSec, speaker, text.' : ''}
 
-7. "vocabulary": 6-10 từ vựng học thuật quan trọng (Academic Word List - AWL) trong bài, gồm: word, ipa, pos, definitionVi, contextualMeaningVi, definitionEn, exampleInAudio, exampleTranslationVi, timestampSec.
+7. "vocabulary": QUÉT VÀ TRÍCH XUẤT ĐẦY ĐỦ 100% TỪ VỰNG:
+   - ĐẶC BIỆT QUAN TRỌNG: Nếu tài liệu PDF có mục/bảng từ vựng (ví dụ có tiêu đề: Vocabulary, Key Vocabulary, Pre-teach Vocabulary, Target Vocabulary, Useful Words, Từ vựng, Bảng từ vựng, Glossary, Target Words, Word List...), bạn BẮT BUỘC PHẢI QUÉT VÀ TRÍCH XUẤT 100% ĐẦY ĐỦ TẤT CẢ các từ vựng này. TUYỆT ĐỐI KHÔNG ĐƯỢC BỎ SÓT, KHÔNG TỰ Ý CẮT BỚT! Giữ nguyên nghĩa tiếng Việt (definitionVi) và loại từ (pos) như đã in trong tài liệu PDF.
+   - Bổ sung thêm các từ vựng học thuật quan trọng (Academic Word List - AWL) trong bài nghe.
+   - Mỗi từ gồm: word, ipa, pos, definitionVi, contextualMeaningVi, definitionEn, exampleInAudio, exampleTranslationVi, timestampSec.
 
 8. "classroomDrills": 10-15 câu thoại đắt giá nhất theo thứ tự thời gian để học sinh luyện Dictation (nghe chép chính tả) và Shadowing (nhại giọng), gồm: id, order (1..N), speaker, sentence (câu hoàn chỉnh 8-28 từ), translationVi (dịch nghĩa tiếng Việt tự nhiên), startSec, endSec, selectionReasonVi, stressPattern, connectedSpeechNote, keyWords.
 
@@ -719,23 +722,67 @@ Trả về DUY NHẤT một JSON hợp lệ (không kèm bất kỳ văn bản n
     ];
   }
 
-  // Final vocabulary
-  const finalVocab: AwlVocabItem[] = (parsedExam.vocabulary || []).map((v) => {
+  // If PDF was provided, also perform dedicated deep scan to guarantee 100% complete vocabulary table extraction
+  let dedicatedPdfVocab: AwlVocabItem[] = [];
+  if (pdfFile && pdfBase64) {
+    try {
+      onProgress?.('Đang quét chuyên sâu bảng từ vựng mục tiêu từ PDF...', 85);
+      dedicatedPdfVocab = await extractDedicatedPdfVocabulary({
+        apiKey,
+        pdfBase64,
+        transcriptText: transcribedText,
+        onProgress: (step) => onProgress?.(step, 87),
+      });
+    } catch (e) {
+      console.warn('[Ingest] Dedicated PDF vocab pass note:', e);
+    }
+  }
+
+  // Merge vocabulary: dedicated PDF vocabulary merged with any additional words from parsedExam.vocabulary
+  const vocabMap = new Map<string, AwlVocabItem>();
+
+  // 1. Add words from parsedExam
+  for (const v of parsedExam.vocabulary || []) {
+    if (!v.word || !v.word.trim()) continue;
+    const key = v.word.trim().toLowerCase();
     const timestampSec = Number.isFinite(v.timestampSec) ? Number(v.timestampSec) : 0;
-    return {
-      word: v.word || 'Vocabulary',
+    vocabMap.set(key, {
+      word: v.word.trim(),
       ipa: v.ipa || '',
-      pos: v.pos || 'n.',
-      definitionVi: v.definitionVi || '',
+      pos: v.pos || 'word',
+      definitionVi: v.definitionVi || v.contextualMeaningVi || '',
       contextualMeaningVi: v.contextualMeaningVi || v.definitionVi || '',
       definitionEn: v.definitionEn || '',
       exampleInAudio: v.exampleInAudio || '',
       exampleTranslationVi: v.exampleTranslationVi || '',
       timestampSec,
-      timestampLabel: formatTimestampLabel(timestampSec),
+      timestampLabel: v.timestampLabel || formatTimestampLabel(timestampSec),
       isAwl: true,
-    };
-  });
+    });
+  }
+
+  // 2. Merge words from dedicated PDF scan (highest fidelity for PDF's pre-teach vocabulary)
+  for (const dv of dedicatedPdfVocab) {
+    if (!dv.word || !dv.word.trim()) continue;
+    const key = dv.word.trim().toLowerCase();
+    const existing = vocabMap.get(key);
+    if (!existing) {
+      vocabMap.set(key, dv);
+    } else {
+      vocabMap.set(key, {
+        ...existing,
+        ...dv,
+        definitionVi: dv.definitionVi || existing.definitionVi,
+        contextualMeaningVi: dv.contextualMeaningVi || existing.contextualMeaningVi || dv.definitionVi,
+        ipa: dv.ipa || existing.ipa,
+        pos: dv.pos || existing.pos,
+        exampleInAudio: dv.exampleInAudio || existing.exampleInAudio,
+        exampleTranslationVi: dv.exampleTranslationVi || existing.exampleTranslationVi,
+      });
+    }
+  }
+
+  const finalVocab: AwlVocabItem[] = Array.from(vocabMap.values());
 
   // Final classroom drills
   let finalDrills: ClassroomDrillSentence[] = (parsedExam.classroomDrills || [])
@@ -1458,6 +1505,102 @@ Trả về JSON:
     timestampLabel: tsLabel,
     isAwl: true,
   };
+}
+
+export async function extractDedicatedPdfVocabulary(input: {
+  apiKey: string;
+  pdfBase64: string;
+  transcriptText?: string;
+  onProgress?: (step: string) => void;
+}): Promise<AwlVocabItem[]> {
+  const cleanKey = (input.apiKey || '').trim();
+  const base64Data = (input.pdfBase64 || '').trim();
+  if (!cleanKey || !base64Data) return [];
+
+  input.onProgress?.('Đang quét toàn bộ file PDF để nhận diện danh mục từ vựng có sẵn (OCR)...');
+
+  const prompt = `Bạn là Chuyên gia Khảo thí và Biên soạn Học liệu IELTS Quốc tế (IELTS Academic Lexicographer).
+Nhiệm vụ TỐI QUAN TRỌNG: Bạn hãy đọc và quét KỸ LƯỠNG TOÀN BỘ file PDF đính kèm (tất cả các trang, các bảng biểu, cột từ vựng, hộp ghi chú callout, mục pre-teach vocabulary, glossary, answer keys, vocabulary notes...).
+
+MỤC TIÊU CỐT LÕI:
+Trích xuất 100% ĐẦY ĐỦ TẤT CẢ CÁC TỪ VỰNG đã có sẵn hoặc được liệt kê/đánh dấu trong file PDF (ví dụ bảng có tiêu đề "Vocabulary", "Key Vocabulary", "Pre-teach Vocabulary", "Target Vocabulary", "Useful Words", "Từ vựng trọng tâm", "Bảng từ vựng", "Glossary", "Từ mới", "Word Bank", v.v.).
+
+CÁC NGUYÊN TẮC BẮT BUỘC (KHÔNG ĐƯỢC VI PHẠM):
+1. KHÔNG ĐƯỢC BỎ SÓT: Dù danh sách trong PDF có 10, 20, 30 hay 50+ từ, bạn BẮT BUỘC PHẢI TRÍCH XUẤT HẾT TẤT CẢ các từ vựng này. Tuyệt đối không tự ý cắt giảm hay chỉ lấy vài từ đại diện.
+2. NGHĨA TIẾNG VIỆT & ĐỊNH NGHĨA:
+   - Nếu trong bảng từ vựng của PDF đã có sẵn nghĩa tiếng Việt: Giữ nguyên nghĩa tiếng Việt chính xác đó vào "definitionVi" và "contextualMeaningVi".
+   - Nếu PDF chưa có tiếng Việt: Dịch nghĩa tiếng Việt thật ngắn gọn, chuẩn xác, tự nhiên theo đúng ngữ cảnh bài nghe IELTS.
+3. PHIÊN ÂM IPA & TỪ LOẠI:
+   - Cung cấp phiên âm quốc tế IPA chuẩn UK/US (ví dụ: "/'ɪnsɪdənt/").
+   - Xác định chính xác từ loại pos ("noun", "verb", "adj", "adv", "phrase", "collocation").
+4. CÂU VÍ DỤ & AUDIO TIMESTAMP:
+${input.transcriptText ? `   - Đối chiếu với Transcript dưới đây để tìm câu thoại chứa từ vựng đó. Nếu có, trích nguyên văn câu vào "exampleInAudio", kèm bản dịch "exampleTranslationVi" và mốc thời gian "timestampSec" (số thực) và "timestampLabel" ("[mm:ss.xx]").\n--- TRANSCRIPT ---\n${input.transcriptText}\n` : '   - Tạo câu ví dụ thực tế chuẩn phong cách IELTS chứa từ này vào "exampleInAudio", dịch câu ví dụ sang tiếng Việt vào "exampleTranslationVi", timestampSec: 0, timestampLabel: "[00:00.00]".'}
+5. Nếu từ vựng trong bảng PDF không xuất hiện trực tiếp trong transcript, vẫn giữ nguyên từ đó với câu ví dụ mẫu chuẩn ngữ cảnh IELTS và mốc thời gian [00:00.00].
+
+Trả về DUY NHẤT một JSON hợp lệ (không kèm bất kỳ giải thích nào khác ngoài JSON):
+{
+  "vocabulary": [
+    {
+      "word": "từ tiếng Anh",
+      "ipa": "/phiên âm/",
+      "pos": "từ loại",
+      "definitionVi": "nghĩa tiếng Việt ngắn gọn",
+      "contextualMeaningVi": "nghĩa tiếng Việt chuẩn theo ngữ cảnh",
+      "definitionEn": "English definition",
+      "exampleInAudio": "Câu ví dụ chứa từ vựng",
+      "exampleTranslationVi": "Bản dịch tiếng Việt của câu ví dụ",
+      "timestampSec": 0,
+      "timestampLabel": "[00:00.00]",
+      "isAwl": true
+    }
+  ]
+}`;
+
+  try {
+    const parts: GeminiContentPart[] = [
+      {
+        inlineData: {
+          mimeType: 'application/pdf',
+          data: base64Data,
+        },
+      },
+      { text: prompt },
+    ];
+
+    const jsonText = await callGeminiDirect(cleanKey, parts, {
+      responseMimeType: 'application/json',
+    });
+
+    const parsed = JSON.parse(cleanJsonFences(jsonText));
+    if (parsed && Array.isArray(parsed.vocabulary)) {
+      return parsed.vocabulary
+        .filter((v: unknown) => {
+          const item = v as Record<string, unknown>;
+          return item && typeof item.word === 'string' && item.word.trim().length > 0;
+        })
+        .map((v: unknown) => {
+          const item = v as Record<string, unknown>;
+          const word = String(item.word || '').trim();
+          const ts = typeof item.timestampSec === 'number' && Number.isFinite(item.timestampSec) ? item.timestampSec : 0;
+          return {
+            word,
+            ipa: String(item.ipa || ''),
+            pos: String(item.pos || 'word'),
+            definitionVi: String(item.definitionVi || item.contextualMeaningVi || ''),
+            contextualMeaningVi: String(item.contextualMeaningVi || item.definitionVi || ''),
+            definitionEn: String(item.definitionEn || ''),
+            exampleInAudio: String(item.exampleInAudio || ''),
+            exampleTranslationVi: String(item.exampleTranslationVi || ''),
+            timestampSec: ts,
+            timestampLabel: typeof item.timestampLabel === 'string' ? item.timestampLabel : formatTimestampLabel(ts),
+            isAwl: item.isAwl !== false,
+          };
+        });
+    }
+  } catch (err) {
+    console.warn('[extractDedicatedPdfVocabulary] Error scanning PDF vocabulary:', err);
+  }
+  return [];
 }
 
 export async function generateQuestionsClientSide(input: {

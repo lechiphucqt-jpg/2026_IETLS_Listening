@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ChevronLeft,
   ChevronRight,
   FileDown,
+  FileText,
   Languages,
   Loader2,
   MonitorPlay,
@@ -14,6 +15,8 @@ import {
   Volume2,
 } from 'lucide-react';
 import type { AwlVocabItem, FlashcardItem, ListeningTestPack } from '../types/ielts';
+import { blobToBase64, getMediaBlob, saveMediaBlob } from '../utils/indexedDBStorage';
+import { extractDedicatedPdfVocabulary } from '../utils/clientGemini';
 import { exportVocabularySlidesPptx } from '../utils/pptxExport';
 import { VocabularySlideModal } from './VocabularySlideModal';
 
@@ -37,6 +40,7 @@ interface VocabularyFlashcardViewProps {
     timestampSec?: number,
     timestampLabel?: string
   ) => Promise<AwlVocabItem>;
+  onBatchAddVocab?: (items: AwlVocabItem[]) => void;
 }
 
 interface LessonDeckCard extends FlashcardItem {
@@ -69,12 +73,16 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
   playbackRate = 1.0,
   onChangeRate,
   onTranslateVocab,
+  onBatchAddVocab,
 }) => {
   const [scope, setScope] = useState<'lesson' | 'all'>('lesson');
   const [filter, setFilter] = useState<'all' | FlashcardItem['status']>('all');
   const [cardIndex, setCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isSlideModalOpen, setIsSlideModalOpen] = useState(false);
+  const [isScanningPdf, setIsScanningPdf] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement | null>(null);
 
   // Contextual AI word translator form state
   const [customWord, setCustomWord] = useState('');
@@ -277,6 +285,79 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
     } finally {
       setIsTranslating(false);
     }
+  };
+
+  const runPdfVocabScan = async (pdfBlobOrFile: Blob | File) => {
+    setIsScanningPdf(true);
+    setScanMessage('Đang quét từ vựng từ PDF (AI OCR)...');
+    try {
+      const apiKey = localStorage.getItem('GEMINI_API_KEY') || '';
+      if (!apiKey.trim()) {
+        alert('Vui lòng nhập API Key Gemini (nút "API Key" ở thanh công cụ phía trên) để sử dụng tính năng quét từ vựng bằng AI.');
+        setIsScanningPdf(false);
+        setScanMessage(null);
+        return;
+      }
+
+      const pdfB64 = await blobToBase64(pdfBlobOrFile);
+      const transcriptText = testPack.segments
+        .map((s) => `${s.timestampLabel} ${s.speaker}: ${s.text}`)
+        .join('\n');
+
+      const extractedWords = await extractDedicatedPdfVocabulary({
+        apiKey: apiKey.trim(),
+        pdfBase64: pdfB64,
+        transcriptText,
+        onProgress: (msg) => setScanMessage(msg),
+      });
+
+      if (!extractedWords || extractedWords.length === 0) {
+        alert('AI không phát hiện thấy bảng hoặc mục từ vựng rõ ràng trong tệp PDF này.');
+      } else {
+        if (onBatchAddVocab) {
+          onBatchAddVocab(extractedWords);
+        }
+        for (const w of extractedWords) {
+          onSaveFlashcard(w, 'new');
+        }
+        alert(`Đã nhận diện thành công ${extractedWords.length} từ vựng từ file PDF!`);
+      }
+    } catch (err: unknown) {
+      console.error('[runPdfVocabScan] Error:', err);
+      alert('Lỗi quét từ vựng từ PDF: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsScanningPdf(false);
+      setScanMessage(null);
+    }
+  };
+
+  const handleScanPdfVocabClick = async () => {
+    if (isScanningPdf) return;
+    try {
+      const storedPdf = await getMediaBlob(testPack.id, 'pdf');
+      if (storedPdf && storedPdf.blob && storedPdf.blob.size > 0) {
+        await runPdfVocabScan(storedPdf.blob);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    if (pdfInputRef.current) {
+      pdfInputRef.current.click();
+    }
+  };
+
+  const handlePdfFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      await saveMediaBlob(testPack.id, 'pdf', file, file.name);
+    } catch (err) {
+      console.warn('Could not save PDF to IndexedDB:', err);
+    }
+    await runPdfVocabScan(file);
+    e.target.value = '';
   };
 
   return (
@@ -497,6 +578,27 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
                 <span>Bài: {currentCard.sourceTitle} · {currentCard.timestampLabel}</span>
               </span>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isScanningPdf}
+                  onClick={handleScanPdfVocabClick}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-full text-xs font-bold transition-all shadow-2xs cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-50"
+                  title="Quét lại toàn bộ mục từ vựng có sẵn trong tệp PDF đề thi (AI OCR)"
+                >
+                  {isScanningPdf ? (
+                    <Loader2 className="w-3.5 h-3.5 text-emerald-700 animate-spin" />
+                  ) : (
+                    <FileText className="w-3.5 h-3.5 text-emerald-700" />
+                  )}
+                  <span>{isScanningPdf ? (scanMessage || 'Đang quét PDF...') : 'Quét lại từ vựng từ PDF (AI OCR)'}</span>
+                </button>
+                <input
+                  ref={pdfInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  className="hidden"
+                  onChange={handlePdfFileSelected}
+                />
                 <button
                   type="button"
                   onClick={() => setIsSlideModalOpen(true)}

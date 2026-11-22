@@ -1670,7 +1670,12 @@ Yêu cầu kỹ thuật (QUAN TRỌNG — BẮT BUỘC phải nhận diện chí
    - Với dạng "matching": prompt là tên đối tượng/địa điểm, options là danh sách lựa chọn, correctAnswer là chữ cái tương ứng.
    - Đối chiếu với Audio Transcript/PDF để điền "correctAnswer" chính xác (nếu PDF có Answer Key, dùng đúng đáp án chuẩn).
    - Điền timestampSec, timestampLabel "[mm:ss.xx]", paraphraseQuestion, paraphraseTranscript, distractorType, distractorDetail (tiếng Việt), transcriptQuote, explanationVi (giải thích cụ thể bằng tiếng Việt VÌ SAO đáp án đúng và các bẫy bị loại), errorCategoryHint ("Spelling" | "Plural/Singular" | "Unit" | "Distractor" | "WordLimit").
-${needSegmentsFromStep2 ? '4. "segments": Tách lời thoại/script từ PDF hoặc văn bản thành TỪNG CÂU ĐƠN / LƯỢT THOẠI RIÊNG BIỆT theo trình tự thời gian (tối đa 45 câu, mỗi câu 1 người nói duy nhất).' : '4. "segments": Có thể bỏ trống mảng này vì đã có Transcript từ Audio ở trên.'}`;
+${needSegmentsFromStep2 ? '4. "segments": Tách lời thoại/script từ PDF hoặc văn bản thành TỪNG CÂU ĐƠN / LƯỢT THOẠI RIÊNG BIỆT theo trình tự thời gian (tối đa 45 câu, mỗi câu 1 người nói duy nhất).' : '4. "segments": Có thể bỏ trống mảng này vì đã có Transcript từ Audio ở trên.'}
+5. "vocabulary": QUÉT VÀ TRÍCH XUẤT 100% TOÀN BỘ TỪ VỰNG:
+   - ĐẶC BIỆT CHÚ Ý: Nếu trong file PDF hoặc văn bản có mục/bảng từ vựng (ví dụ có tiêu đề: Vocabulary, Key Vocabulary, Pre-teach Vocabulary, Target Words, Useful Words, Từ vựng, Bảng từ vựng, Glossary, Word Bank, Từ mới...), bạn PHẢI TRÍCH XUẤT ĐẦY ĐỦ 100% TẤT CẢ các từ vựng này. TUYỆT ĐỐI KHÔNG BỎ SÓT, KHÔNG TỰ Ý CẮT BỚT.
+   - Giữ nguyên định nghĩa tiếng Việt (definitionVi) và loại từ (pos), phiên âm (ipa) như trong tài liệu PDF.
+   - Ngoài ra bổ sung thêm các từ vựng học thuật quan trọng trong bài nghe.
+   - Mỗi từ gồm: word, ipa, pos, definitionVi, contextualMeaningVi, definitionEn, exampleInAudio, exampleTranslationVi, timestampSec, isAwl=true.`;
 
         let parsed: Partial<ListeningTestPack> | null = null;
 
@@ -1753,6 +1758,26 @@ ${needSegmentsFromStep2 ? '4. "segments": Tách lời thoại/script từ PDF ho
               },
             };
           }
+
+          schemaProps.vocabulary = {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                word: { type: Type.STRING },
+                ipa: { type: Type.STRING },
+                pos: { type: Type.STRING },
+                definitionVi: { type: Type.STRING },
+                contextualMeaningVi: { type: Type.STRING },
+                definitionEn: { type: Type.STRING },
+                exampleInAudio: { type: Type.STRING },
+                exampleTranslationVi: { type: Type.STRING },
+                timestampSec: { type: Type.NUMBER },
+                timestampLabel: { type: Type.STRING },
+                isAwl: { type: Type.BOOLEAN },
+              },
+            },
+          };
 
           const structRes = await generateWithFallback(ai, {
             model: 'gemini-2.5-flash',
@@ -1940,15 +1965,21 @@ IMPORTANT: Do NOT leave "questions" empty. Extract up to 15 questions (or genera
               ...rawQuestions.slice(0, 8).map((q) => `Q${q.number}: ${q.prompt} (${q.correctAnswer || ''})`),
             ].join('\n');
 
-            if (contextSnippet.trim()) {
-              const enrichRes = await generateWithFallback(ai, {
-                model: 'gemini-2.5-flash',
-                contents: `Từ nội dung bài nghe IELTS sau, hãy trích xuất:
-1. "vocabulary": 5–6 từ vựng học thuật/từ khóa quan trọng kèm IPA, pos, definitionVi, contextualMeaningVi (nghĩa tiếng Việt sát ngữ cảnh bài), definitionEn, exampleInAudio, exampleTranslationVi, timestampSec, isAwl=true.
+            if (contextSnippet.trim() || pdfPart) {
+              const enrichParts: GeminiPart[] = [];
+              if (pdfPart) enrichParts.push(pdfPart);
+              enrichParts.push({
+                text: `Từ tài liệu PDF đính kèm (nếu có) và nội dung bài nghe IELTS sau, hãy trích xuất:
+1. "vocabulary": Trích xuất 100% TOÀN BỘ từ vựng có trong bảng/mục từ vựng của file PDF (nếu có) và các từ vựng học thuật quan trọng trong bài nghe kèm IPA, pos, definitionVi, contextualMeaningVi (nghĩa tiếng Việt sát ngữ cảnh bài), definitionEn, exampleInAudio, exampleTranslationVi, timestampSec, isAwl=true. TUYỆT ĐỐI KHÔNG CẮT BỚT SỐ LƯỢNG.
 2. "intensiveDrills": 2 câu luyện nghe chép chuyên sâu từ bài kèm sentenceWithBlanks (dùng ___), missingPhrases ([{ answer, hintContext, letterMask }]), connectedSpeechNote, startSec, endSec.
 
 --- NỘI DUNG ---
 ${contextSnippet}`,
+              });
+
+              const enrichRes = await generateWithFallback(ai, {
+                model: 'gemini-2.5-flash',
+                contents: { parts: enrichParts },
                 config: {
                   thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
                   responseMimeType: 'application/json',

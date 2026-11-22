@@ -1080,6 +1080,39 @@ export default function App() {
     [activeTest, handleSaveFlashcard]
   );
 
+  const handleBatchAddVocab = useCallback(
+    (items: AwlVocabItem[]) => {
+      setTests((prev) =>
+        prev.map((t) => {
+          if (t.id !== activeTest.id) return t;
+          const vocabMap = new Map<string, AwlVocabItem>();
+          for (const v of t.vocabulary) {
+            vocabMap.set(v.word.toLowerCase(), v);
+          }
+          for (const item of items) {
+            const key = item.word.toLowerCase();
+            const existing = vocabMap.get(key);
+            if (!existing) {
+              vocabMap.set(key, item);
+            } else {
+              vocabMap.set(key, {
+                ...existing,
+                ...item,
+                definitionVi: item.definitionVi || existing.definitionVi,
+                contextualMeaningVi: item.contextualMeaningVi || existing.contextualMeaningVi,
+              });
+            }
+          }
+          return {
+            ...t,
+            vocabulary: Array.from(vocabMap.values()),
+          };
+        })
+      );
+    },
+    [activeTest.id]
+  );
+
   const handleExtractClassroomDrills = useCallback(
     async (count: number): Promise<ClassroomDrillSentence[]> => {
       const effectiveDuration = Math.max(activeTest.durationSec || 0, duration || 0);
@@ -1657,6 +1690,7 @@ export default function App() {
             playbackRate={playbackRate}
             onChangeRate={setPlaybackRate}
             onTranslateVocab={handleTranslateVocab}
+            onBatchAddVocab={handleBatchAddVocab}
           />
         )}
       </main>
