@@ -1496,6 +1496,73 @@ export default function App() {
     [activeTest.id]
   );
 
+  const handleUpdateVocabTime = useCallback(
+    (word: string, startSec: number, endSec: number) => {
+      const roundedStart = Number(Math.max(0, startSec).toFixed(2));
+      const roundedEnd = Number(Math.max(roundedStart + 0.3, endSec).toFixed(2));
+      const newLabel = formatTsLabel(roundedStart);
+      const cleanWord = word.trim().toLowerCase();
+
+      setTests((prev) =>
+        prev.map((t) => {
+          if (t.id !== activeTest.id) return t;
+          let changed = false;
+          const nextVocab = (t.vocabulary || []).map((v) => {
+            if (v.word.trim().toLowerCase() === cleanWord) {
+              changed = true;
+              return {
+                ...v,
+                timestampSec: roundedStart,
+                timestampEndSec: roundedEnd,
+                timestampLabel: newLabel,
+              };
+            }
+            return v;
+          });
+          const nextPreTeach = (t.preTeachVocab || []).map((v) => {
+            if (v.word.trim().toLowerCase() === cleanWord) {
+              changed = true;
+              return {
+                ...v,
+                timestampSec: roundedStart,
+                timestampEndSec: roundedEnd,
+                timestampLabel: newLabel,
+              };
+            }
+            return v;
+          });
+
+          if (!changed) return t;
+          const updatedPack = { ...t, vocabulary: nextVocab, preTeachVocab: nextPreTeach };
+          if (updatedPack.isCustomUpload) {
+            fetch(`/api/ielts/tests/${encodeURIComponent(updatedPack.id)}`, {
+              method: 'PUT',
+              credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ testPack: updatedPack }),
+            }).catch(() => {});
+          }
+          return updatedPack;
+        })
+      );
+
+      setFlashcards((prev) =>
+        prev.map((f) => {
+          if (f.word.trim().toLowerCase() === cleanWord) {
+            return {
+              ...f,
+              timestampSec: roundedStart,
+              timestampEndSec: roundedEnd,
+              timestampLabel: newLabel,
+            };
+          }
+          return f;
+        })
+      );
+    },
+    [activeTest.id]
+  );
+
   const handleSyncFromDriveSuccess = useCallback((pulledTests: ListeningTestPack[]) => {
     setTests((prev) => {
       const map = new Map<string, ListeningTestPack>();
@@ -1691,6 +1758,7 @@ export default function App() {
             onChangeRate={setPlaybackRate}
             onTranslateVocab={handleTranslateVocab}
             onBatchAddVocab={handleBatchAddVocab}
+            onUpdateVocabTime={handleUpdateVocabTime}
           />
         )}
       </main>

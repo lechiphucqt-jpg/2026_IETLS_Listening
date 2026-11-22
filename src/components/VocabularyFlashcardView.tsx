@@ -43,6 +43,7 @@ interface VocabularyFlashcardViewProps {
     timestampLabel?: string
   ) => Promise<AwlVocabItem>;
   onBatchAddVocab?: (items: AwlVocabItem[]) => void;
+  onUpdateVocabTime?: (word: string, startSec: number, endSec: number) => void;
 }
 
 interface LessonDeckCard extends FlashcardItem {
@@ -76,6 +77,7 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
   onChangeRate,
   onTranslateVocab,
   onBatchAddVocab,
+  onUpdateVocabTime,
 }) => {
   const [scope, setScope] = useState<'lesson' | 'all'>('lesson');
   const [filter, setFilter] = useState<'all' | FlashcardItem['status']>('all');
@@ -1038,6 +1040,7 @@ export const VocabularyFlashcardView: React.FC<VocabularyFlashcardViewProps> = (
         isPlaying={isPlaying}
         playbackRate={playbackRate}
         onChangeRate={onChangeRate}
+        onUpdateCardAudioTime={onUpdateVocabTime}
       />
     </div>
   );

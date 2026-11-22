@@ -18,6 +18,7 @@ import {
   Pause,
   Repeat,
   RotateCcw,
+  SlidersHorizontal,
   Sparkles,
   Star,
   Timer,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react';
 import type { FlashcardItem, ListeningTestPack } from '../types/ielts';
 import { exportVocabularySlidesPptx } from '../utils/pptxExport';
+import { formatSecondsToTime, formatTsLabel, parseTimeToSeconds } from '../utils/audioTime';
 import {
   cleanWordKey,
   lookupWordDictionary,
@@ -53,6 +55,7 @@ export interface VocabularySlideModalProps {
   isPlaying?: boolean;
   playbackRate?: number;
   onChangeRate?: (rate: number) => void;
+  onUpdateCardAudioTime?: (word: string, startSec: number, endSec: number) => void;
 }
 
 function parseTimestampToSec(label?: string): number | null {
@@ -113,6 +116,7 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
   isPlaying = false,
   playbackRate = 1.0,
   onChangeRate,
+  onUpdateCardAudioTime,
 }) => {
   const [currentSlideIdx, setCurrentSlideIdx] = useState(initialIndex);
   const [activeMode, setActiveMode] = useState<VocabSlideTeachingMode>('blind_meaning');
@@ -138,6 +142,15 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
   const [isLookingUpWord, setIsLookingUpWord] = useState<boolean>(false);
   const [flashcardSavedSuccess, setFlashcardSavedSuccess] = useState<boolean>(false);
 
+  // 4. Custom card audio time tuning state
+  const [customCardTimings, setCustomCardTimings] = useState<
+    Record<string, { startSec: number; endSec: number; label: string }>
+  >({});
+  const [isEditingAudioTime, setIsEditingAudioTime] = useState(false);
+  const [editStartSec, setEditStartSec] = useState<number>(0);
+  const [editEndSec, setEditEndSec] = useState<number>(0);
+  const [saveTimeSuccess, setSaveTimeSuccess] = useState(false);
+
   const wasPlayingRef = useRef(false);
   const loopTimerRef = useRef<number | null>(null);
   const modalContainerRef = useRef<HTMLDivElement | null>(null);
@@ -151,11 +164,27 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
     }
   }, [isOpen, initialIndex, cards.length]);
 
+  useEffect(() => {
+    setIsEditingAudioTime(false);
+    setSaveTimeSuccess(false);
+  }, [currentSlideIdx]);
+
   const currentCard = cards[currentSlideIdx] || cards[0];
 
   // Precise audio timing for the current vocabulary card's example sentence
   const cardAudioTiming = useMemo(() => {
     if (!currentCard) return { startSec: 0, endSec: 5, label: '[00:00.00]', source: 'none', matchedText: '' };
+
+    const wordKey = (currentCard.word || '').trim().toLowerCase();
+    if (customCardTimings[wordKey]) {
+      return {
+        startSec: customCardTimings[wordKey].startSec,
+        endSec: customCardTimings[wordKey].endSec,
+        label: customCardTimings[wordKey].label,
+        source: 'user_custom',
+        matchedText: currentCard.exampleInAudio || currentCard.contextSentence || '',
+      };
+    }
 
     // 1. Get explicit timestamp if present
     const explicitSec =
@@ -931,6 +960,28 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
                       </button>
                     )}
 
+                    {onPlaySegment && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isEditingAudioTime) {
+                            setEditStartSec(cardAudioTiming.startSec);
+                            setEditEndSec(cardAudioTiming.endSec);
+                          }
+                          setIsEditingAudioTime((prev) => !prev);
+                        }}
+                        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-md ${
+                          isEditingAudioTime
+                            ? 'bg-amber-600 border-amber-400 text-white'
+                            : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-amber-300'
+                        }`}
+                        title="Chỉnh mốc thời gian bắt đầu và kết thúc của Audio bài cho từ vựng này"
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                        <span>{isEditingAudioTime ? 'Đóng chỉnh' : 'Chỉnh Audio'}</span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => speakSentencePronunciation(exampleSentence, 'en-GB')}
@@ -1014,7 +1065,7 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
                     <span className="text-xs font-bold text-purple-400 uppercase tracking-wider">
                       Câu ví dụ thực tế trong bài nghe IELTS (Bấm vào từng từ để tra):
                     </span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       {onPlaySegment && (
                         <button
                           type="button"
@@ -1026,6 +1077,30 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
                           <span>Audio bài</span>
                         </button>
                       )}
+
+                      {/* Nút Chỉnh Audio bài */}
+                      {onPlaySegment && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!isEditingAudioTime) {
+                              setEditStartSec(cardAudioTiming.startSec);
+                              setEditEndSec(cardAudioTiming.endSec);
+                            }
+                            setIsEditingAudioTime((prev) => !prev);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors border ${
+                            isEditingAudioTime
+                              ? 'bg-amber-600 border-amber-400 text-white shadow-xs'
+                              : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-amber-300'
+                          }`}
+                          title="Chỉnh mốc thời gian bắt đầu và kết thúc của Audio bài cho từ vựng này"
+                        >
+                          <SlidersHorizontal className="w-3 h-3" />
+                          <span>{isEditingAudioTime ? 'Đóng chỉnh' : 'Chỉnh Audio bài'}</span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => speakSentencePronunciation(exampleSentence, 'en-GB')}
@@ -1037,6 +1112,165 @@ export const VocabularySlideModal: React.FC<VocabularySlideModalProps> = ({
                       </button>
                     </div>
                   </div>
+
+                  {/* Panel Chỉnh mốc Audio bài */}
+                  {isEditingAudioTime && (
+                    <div className="mb-3 p-3.5 rounded-xl bg-slate-950/90 border border-amber-500/50 shadow-lg space-y-3 animate-in fade-in zoom-in-95 duration-150">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800 text-xs">
+                        <div className="flex items-center gap-1.5 font-bold text-amber-300">
+                          <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Chỉnh mốc Audio bài: “{currentCard.word}”</span>
+                        </div>
+                        <div className="text-[11px] font-mono text-slate-400 flex items-center gap-2">
+                          <span>
+                            Thời lượng:{' '}
+                            <strong className="text-white">
+                              {Math.max(0, editEndSec - editStartSec).toFixed(2)}s
+                            </strong>
+                          </span>
+                          <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
+                            [{formatSecondsToTime(editStartSec)} → {formatSecondsToTime(editEndSec)}]
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Start Time Tuning */}
+                        <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-1.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-emerald-300 flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                              Bắt đầu (Start)
+                            </span>
+                            <span className="font-mono text-slate-400 text-[11px]">
+                              {editStartSec.toFixed(2)}s
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={formatSecondsToTime(editStartSec)}
+                              onChange={(e) => {
+                                const parsed = parseTimeToSeconds(e.target.value);
+                                if (parsed !== null) setEditStartSec(parsed);
+                              }}
+                              className="w-24 bg-slate-950 border border-slate-700 focus:border-emerald-500 rounded px-2 py-1 text-xs font-mono font-bold text-white text-center outline-none"
+                            />
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {[-1.0, -0.5, -0.1, +0.1, +0.5, +1.0].map((step) => (
+                                <button
+                                  key={step}
+                                  type="button"
+                                  onClick={() =>
+                                    setEditStartSec((prev) =>
+                                      Number(Math.max(0, prev + step).toFixed(2))
+                                    )
+                                  }
+                                  className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 hover:text-white transition-colors cursor-pointer"
+                                >
+                                  {step > 0 ? `+${step}` : step}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* End Time Tuning */}
+                        <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-1.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-amber-300 flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-amber-400" />
+                              Kết thúc (End)
+                            </span>
+                            <span className="font-mono text-slate-400 text-[11px]">
+                              {editEndSec.toFixed(2)}s
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={formatSecondsToTime(editEndSec)}
+                              onChange={(e) => {
+                                const parsed = parseTimeToSeconds(e.target.value);
+                                if (parsed !== null) setEditEndSec(parsed);
+                              }}
+                              className="w-24 bg-slate-950 border border-slate-700 focus:border-amber-500 rounded px-2 py-1 text-xs font-mono font-bold text-white text-center outline-none"
+                            />
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {[-1.0, -0.5, -0.1, +0.1, +0.5, +1.0].map((step) => (
+                                <button
+                                  key={step}
+                                  type="button"
+                                  onClick={() =>
+                                    setEditEndSec((prev) =>
+                                      Number(Math.max(editStartSec + 0.2, prev + step).toFixed(2))
+                                    )
+                                  }
+                                  className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 hover:text-white transition-colors cursor-pointer"
+                                >
+                                  {step > 0 ? `+${step}` : step}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons inside adjuster */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onPlaySegment) {
+                              onPlaySegment(editStartSec, editEndSec);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>Nghe thử ({(editEndSec - editStartSec).toFixed(1)}s)</span>
+                        </button>
+
+                        <div className="flex items-center gap-2">
+                          {saveTimeSuccess && (
+                            <span className="text-xs text-emerald-400 font-bold flex items-center gap-1 animate-in fade-in duration-200">
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              Đã lưu mốc mới!
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const wordKey = (currentCard.word || '').trim().toLowerCase();
+                              const newLabel = formatTsLabel(editStartSec);
+                              setCustomCardTimings((prev) => ({
+                                ...prev,
+                                [wordKey]: {
+                                  startSec: editStartSec,
+                                  endSec: editEndSec,
+                                  label: newLabel,
+                                },
+                              }));
+                              onUpdateCardAudioTime?.(currentCard.word, editStartSec, editEndSec);
+                              setSaveTimeSuccess(true);
+                              setTimeout(() => setSaveTimeSuccess(false), 2000);
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Lưu mốc này</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingAudioTime(false)}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            Đóng
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <p className="text-base sm:text-lg font-bold leading-relaxed text-white">
                     “
                     {exampleSentence.split(/(\s+)/).map((part, pIdx) => {
